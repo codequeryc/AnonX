@@ -29,13 +29,14 @@ def webhook():
                 reply = "⚠️ Please provide a movie name after #request"
 
         elif text.lower() == "/help":
-            reply = (
-                "📌 *Movie Request Bot Help*\n\n"
-                "🎬 To request a movie, type:\n"
-                "`#request Movie Name`\n\n"
-                "Example:\n`#request Inception`\n\n"
-                "ℹ️ You can also use /help to view this message."
-            )
+reply = (
+    "📌 *Movie Request Bot Help*\n\n"
+    "🎬 To request a movie, type:\n"
+    "`#request Movie Name`\n\n"
+    "Example:\n`#request Inception`\n\n"
+    "ℹ️ Type ` /help ` to show this help again."
+)
+
 
         if reply:
             requests.post(TELEGRAM_API, json={
