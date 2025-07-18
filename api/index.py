@@ -21,12 +21,20 @@ def webhook():
 
         reply = None
 
-        if text.lower().startswith("#request"):
-            movie = text[8:].strip()
-            if movie:
-                reply = f"✅ Your request for *{movie}* has been noted."
-            else:
-                reply = "⚠️ Please provide a movie name after #request"
+if text.lower().startswith("#request"):
+    movie = text[8:].strip()
+    username = (
+    data["message"]["from"].get("username")
+    or data["message"]["from"].get("first_name")
+    or "User"
+)
+
+    
+    if movie:
+        reply = f"✅ @{username}, your request for *{movie}* has been noted."
+    else:
+        reply = "⚠️ Please provide a movie name after #request"
+
 
         elif text.lower() == "/help":
             reply = (
