@@ -34,7 +34,7 @@ def webhook():
                 "🎬 To request a movie, type:\n"
                 "#request Movie Name\n\n"
                 "Example:\n#request Inception\n\n"
-                "ℹ️ You can also use /help to view this message."
+                "ℹ️ You can also use ` /help ` to view this message."
             )
 
         if reply:
