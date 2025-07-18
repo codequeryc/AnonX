@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Make sure this is set in your environment
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
@@ -18,23 +18,20 @@ def webhook():
     if data and "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "").strip()
-
         reply = None
 
-if text.lower().startswith("#request"):
-    movie = text[8:].strip()
-    username = (
-    data["message"]["from"].get("username")
-    or data["message"]["from"].get("first_name")
-    or "User"
-)
+        if text.lower().startswith("#request"):
+            movie = text[8:].strip()
+            username = (
+                data["message"]["from"].get("username")
+                or data["message"]["from"].get("first_name")
+                or "User"
+            )
 
-    
-    if movie:
-        reply = f"✅ @{username}, your request for *{movie}* has been noted."
-    else:
-        reply = "⚠️ Please provide a movie name after #request"
-
+            if movie:
+                reply = f"✅ @{username}, your request for *{movie}* has been noted."
+            else:
+                reply = "⚠️ Please provide a movie name after #request"
 
         elif text.lower() == "/help":
             reply = (
