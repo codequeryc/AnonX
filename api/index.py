@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Make sure this is set in your environment
+BOT_TOKEN = os.environ.get("BOT_TOKEN") or "your_bot_token_here"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
@@ -18,10 +18,14 @@ def webhook():
     if data and "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "").strip()
+        print("Received message:", text)
+
         reply = None
 
         if text.lower().startswith("#request"):
-            movie = text[8:].strip()
+            parts = text.split(maxsplit=1)
+            movie = parts[1].strip() if len(parts) > 1 else ""
+
             username = (
                 data["message"]["from"].get("username")
                 or data["message"]["from"].get("first_name")
