@@ -1,17 +1,16 @@
 from flask import Flask, request
 import requests
 import os
+from fetch import search_posts  # ✅ Import from fetch.py
 
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-BLOG_URL = os.environ.get("BLOG_URL")
-
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Request Bot is live with Blogger Feed Search!"
+    return "🤖 Movie Request Bot is live!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -27,23 +26,15 @@ def webhook():
             movie = text[8:].strip()
 
             if movie:
-                feed_url = f"{BLOG_URL}/feeds/posts/default?q={movie}&alt=json"
-                response = requests.get(feed_url)
-
-                if response.status_code == 200:
-                    result = response.json()
-                    entries = result.get("feed", {}).get("entry", [])
-                    
-                    if entries:
-                        reply = f"🎬 *Search Results for:* `{movie}`\n\n"
-                        for entry in entries[:5]:  # Top 5 results
-                            title = entry.get("title", {}).get("$t", "No Title")
-                            link = next((l["href"] for l in entry["link"] if l["rel"] == "alternate"), "#")
-                            reply += f"🔗 [{title}]({link})\n"
-                    else:
-                        reply = f"❌ No results found for `{movie}`"
-                else:
+                results = search_posts(movie)
+                if results is None:
                     reply = "⚠️ Failed to fetch data from Blogger Feed."
+                elif not results:
+                    reply = f"❌ No results found for `{movie}`"
+                else:
+                    reply = f"🎬 *Search Results for:* `{movie}`\n\n"
+                    for r in results:
+                        reply += f"🔗 [{r['title']}]({r['link']})\n"
             else:
                 reply = "⚠️ Please provide a movie name after #request"
 
