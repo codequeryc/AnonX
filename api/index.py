@@ -40,7 +40,7 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
         return {"ok": True}
 
-    if msg_text.lower() == "/start":
+    if msg_text.lower() in ["/start", "/help", "help"]:
         return send_message(chat_id,
             f"👋 <b>Welcome, {user_name}!</b>\n\n"
             "🎬 <b>Search for Movies & Series:</b>\n"
