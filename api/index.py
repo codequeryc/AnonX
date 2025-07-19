@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}  # Stores links per user per button
+movie_links = {}  # ✅ Global callback_id → link
 
 @app.route("/", methods=["GET"])
 def home():
@@ -67,7 +67,7 @@ def handle_callback(query):
         chat_id = query["message"]["chat"]["id"]
         callback_data = query["data"]
 
-        link = movie_links.get(chat_id, {}).get(callback_data)
+        link = movie_links.get(callback_data)  # ✅ No longer per-chat
 
         if not link:
             send_message(chat_id, "⚠️ Link expired or not found.")
@@ -117,7 +117,7 @@ def handle_search(chat_id, query, user_name, category):
     query = query.strip()
     if not query:
         return send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
-    text, buttons = search_filmyfly(query, category, chat_id)
+    text, buttons = search_filmyfly(query, category)
     return send_message(chat_id, text, buttons=buttons)
 
 
@@ -150,14 +150,12 @@ def delete_message(chat_id, message_id):
         print(f"[Delete Message Error] {e}")
 
 
-def search_filmyfly(query, category, chat_id):
+def search_filmyfly(query, category):
     try:
         url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
-
-        movie_links[chat_id] = {}
 
         results = []
         for item in soup.select("div.A2"):
@@ -166,8 +164,8 @@ def search_filmyfly(query, category, chat_id):
             if a_tag and b_tag:
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
-                callback_id = f"movie_{abs(hash(title + link))}"  # unique per movie
-                movie_links[chat_id][callback_id] = link
+                callback_id = f"movie_{abs(hash(title + link))}"
+                movie_links[callback_id] = link  # ✅ Save globally
                 results.append([{"text": title, "callback_data": callback_id}])
             if len(results) >= 10:
                 break
