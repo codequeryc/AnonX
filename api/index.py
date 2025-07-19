@@ -1,7 +1,6 @@
 from flask import Flask, request
 import requests, os, threading
 from bs4 import BeautifulSoup
-from .config import get_and_update_url
 
 app = Flask(__name__)
 
@@ -64,7 +63,7 @@ def webhook():
 
 
 def send_help(chat_id, name):
-    return send_message(chat_id,
+    return send_message(chat_id, 
         f"👋 <b>Welcome, {name}!</b>\n\n"
         "🎬 <b>Search Movies & Series:</b>\n"
         "🎥 <code>#movie Animal</code>\n"
@@ -79,23 +78,15 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    uid = "abc12"  # 👈 hardcoded or dynamic
-    base_url = get_and_update_url(uid)
-    if not base_url:
-        return send_message(chat_id, "❌ URL not found in database.")
-
-    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
-    try:
-        soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
-    except:
-        return send_message(chat_id, "❌ Failed to load search page.")
+    url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
+    soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
 
     buttons = []
     for item in soup.select("div.A2"):
         a, b = item.find("a", href=True), item.find("b")
         if a and b:
             title = b.text.strip()
-            link = base_url + a["href"]
+            link = "https://filmyfly.party" + a["href"]
             cid = f"movie_{abs(hash(title + link))}"
             movie_links[cid] = {"title": title, "link": link}
             buttons.append([{"text": title, "callback_data": cid}])
@@ -127,13 +118,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-        f"🎬 <b>{title}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>📁 Size:</b> <code>{size}</code>\n"
-        f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-        f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
+    f"🎬 <b>{title}</b>\n"
+    f"━━━━━━━━━━━━━━━━━━━\n"
+    f"<b>📁 Size:</b> <code>{size}</code>\n"
+    f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+    f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+    f"━━━━━━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
