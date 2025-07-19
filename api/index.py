@@ -43,7 +43,7 @@ def webhook():
     if msg_text.lower() == "/start":
         return send_message(chat_id,
             f"🎬 Welcome {user_name}!\n"
-            "Search with:\n"
+            "Search using:\n"
             "<code>#movie Animal</code>\n"
             "<code>#tv Breaking Bad</code>\n"
             "<code>#series Loki</code>"
@@ -72,10 +72,13 @@ def handle_callback(query):
     soup = BeautifulSoup(requests.get(link, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).text, "html.parser")
 
     # 🎞️ Images
-    poster_url = soup.select_one("div.movie-thumb img")["src"] if soup.select_one("div.movie-thumb img") else None
-    ss_url = soup.select_one("div.ss img")["src"] if soup.select_one("div.ss img") else None
+    poster_tag = soup.select_one("div.movie-thumb img")
+    poster_url = poster_tag["src"] if poster_tag else None
 
-    # 📂 Info extract
+    ss_tag = soup.select_one("div.ss img")
+    ss_url = ss_tag["src"] if ss_tag else None
+
+    # 📂 Extract Info
     def get_value(label):
         for block in soup.select("div.fname"):
             if block.contents and label.lower() in block.contents[0].lower():
@@ -86,14 +89,29 @@ def handle_callback(query):
     language = get_value("Language")
     genre = get_value("Genre")
 
+    # 🔗 Extract Download Link
+    download_link = None
+    dl_a = soup.select_one("div.dlbtn a")
+    if dl_a and dl_a.get("href"):
+        download_link = dl_a["href"]
+    else:
+        dll = soup.select_one("a > div.dll")
+        if dll and dll.parent.get("href"):
+            download_link = dll.parent["href"]
+
     caption = (
         f"<b>🎬 {title}</b>\n\n"
         f"<b>📁 Size:</b> {size}\n"
         f"<b>🈯 Language:</b> {language}\n"
         f"<b>🎭 Genre:</b> {genre}\n\n"
-        f"<a href='{link}'>📥 Download</a>"
     )
 
+    if download_link:
+        caption += f"<a href='{download_link}'>📥 Download</a>"
+    else:
+        caption += f"<a href='{link}'>📥 Original Page</a>"
+
+    # 📸 Media Group
     media = []
     if poster_url:
         media.append({
@@ -103,12 +121,18 @@ def handle_callback(query):
             "parse_mode": "HTML"
         })
     if ss_url:
-        media.append({"type": "photo", "media": ss_url})
+        media.append({
+            "type": "photo",
+            "media": ss_url
+        })
 
     if media:
-        requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=10)
+        requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={
+            "chat_id": chat_id,
+            "media": media
+        }, timeout=10)
     else:
-        send_message(chat_id, f"<b>📥 Download</b>:\n<a href='{link}'>{link}</a>")
+        send_message(chat_id, caption)
 
     return {"ok": True}
 
@@ -117,7 +141,7 @@ def handle_search(chat_id, query, category):
     query = query.strip()
     if not query:
         return send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
-    
+
     url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
     soup = BeautifulSoup(requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).text, "html.parser")
 
