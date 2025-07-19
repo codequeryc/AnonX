@@ -10,14 +10,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 movie_links = {}  # callback_id → {link, title}
-BASE_URL_CACHE = None
 
 
 def get_base_url():
-    global BASE_URL_CACHE
-    if BASE_URL_CACHE:
-        return BASE_URL_CACHE
-
     xata_query_url = f"{XATA_BASE_URL}/tables/domains/query"
     headers = {
         "Authorization": f"Bearer {XATA_API_KEY}",
@@ -61,7 +56,6 @@ def get_base_url():
             else:
                 print(f"❌ Failed to update URL in Xata: {patch_res.status_code} - {patch_res.text}")
 
-        BASE_URL_CACHE = final_url
         return final_url
 
     except Exception as e:
