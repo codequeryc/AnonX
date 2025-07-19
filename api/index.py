@@ -3,6 +3,7 @@ import requests
 import os
 import threading
 from bs4 import BeautifulSoup
+import json
 
 app = Flask(__name__)
 
@@ -105,10 +106,11 @@ def handle_inline_query(inline_query):
                     },
                     "reply_markup": {
                         "inline_keyboard": [
-                            [{"text": "View Details", "url": link}],
-                            [{"text": "Search Again", "switch_inline_query_current_chat": query}]
+                            [{"text": "📜 View Details", "callback_data": f"fetch_details|{link}"}],
+                            [{"text": "🔍 Search Again", "switch_inline_query_current_chat": query}]
                         ]
-                    }
+                    },
+                    "description": "Click 'View Details' for more information"
                 })
         
         if not results:
@@ -137,12 +139,86 @@ def handle_callback_query(callback_query):
     message_id = message["message_id"]
     user_id = callback_query["from"]["id"]
     
-    # You can add different callback actions here
-    if data.startswith("delete_"):
-        delete_message(chat_id, message_id)
+    if data.startswith("fetch_details|"):
+        # Extract the URL from callback data
+        url = data.split("|")[1]
+        
+        # Show "Fetching details..." message
+        answer_callback_query(callback_query["id"], "⏳ Fetching details...")
+        
+        # Fetch and parse the movie details
+        details = fetch_movie_details(url)
+        
+        if details:
+            # Edit the original message with the details
+            edit_message(chat_id, message_id, details["text"], details["buttons"])
+        else:
+            answer_callback_query(callback_query["id"], "❌ Failed to fetch details")
     else:
         # Default action - just answer the callback
         answer_callback_query(callback_query["id"])
+
+def fetch_movie_details(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # Extract movie thumbnail
+        thumb_div = soup.find("div", class_="movie-thumb")
+        image_url = thumb_div.find("img")["src"] if thumb_div else None
+        
+        # Extract movie title
+        title_div = soup.find("div", align="center")
+        title = title_div.find("h2").text.strip() if title_div else "No title found"
+        
+        # Extract other details (you can customize this based on the page structure)
+        details_div = soup.find("div", class_="movie-details")
+        details = []
+        if details_div:
+            for p in details_div.find_all("p"):
+                details.append(p.text.strip())
+        
+        # Prepare the message text
+        text = f"🎬 <b>{title}</b>\n\n"
+        text += "\n".join(f"• {detail}" for detail in details)
+        
+        # Prepare buttons (you can add download links etc.)
+        buttons = [
+            [{"text": "🔗 View Original Page", "url": url}],
+            [{"text": "🔍 Search Again", "switch_inline_query_current_chat": ""}]
+        ]
+        
+        # If we have an image, send it as a photo with caption
+        if image_url:
+            return {
+                "type": "photo",
+                "image_url": image_url,
+                "text": text,
+                "buttons": buttons
+            }
+        else:
+            return {
+                "text": text,
+                "buttons": buttons
+            }
+            
+    except Exception as e:
+        print(f"Error fetching movie details: {e}")
+        return None
+
+def edit_message(chat_id, message_id, text, buttons=None):
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False  # Enable preview for details
+    }
+    if buttons:
+        payload["reply_markup"] = {"inline_keyboard": buttons}
+    
+    requests.post(f"{TELEGRAM_API}/editMessageText", json=payload)
 
 def answer_callback_query(callback_query_id, text=None):
     payload = {
