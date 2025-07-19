@@ -2,6 +2,8 @@ from flask import Flask, request
 import requests
 import feedparser
 import os
+import time
+import threading
 
 app = Flask(__name__)
 
@@ -28,9 +30,11 @@ def webhook():
 
     # 🔗 Block links
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
-        warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
-        send_message(chat_id, warning, reply_to=message_id)
-        delete_message(chat_id, message_id)
+        # Start threaded handler to send and delete warning + delete original msg
+        threading.Thread(
+            target=send_and_auto_delete_warning,
+            args=(chat_id, message_id, first_name)
+        ).start()
         return {"ok": True}
 
     # 🤖 Handle /start command
@@ -75,6 +79,31 @@ def webhook():
     return {"ok": True}
 
 
+def send_and_auto_delete_warning(chat_id, user_message_id, first_name):
+    # ⚠️ Send warning message as reply
+    warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
+    payload = {
+        "chat_id": chat_id,
+        "text": warning,
+        "reply_to_message_id": user_message_id,
+        "disable_web_page_preview": True
+    }
+    response = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+
+    # ❌ Delete user message instantly
+    delete_message(chat_id, user_message_id)
+
+    # ⏳ Delete warning message after 5 seconds
+    try:
+        result = response.json()
+        if result.get("ok"):
+            warning_msg_id = result["result"]["message_id"]
+            time.sleep(5)
+            delete_message(chat_id, warning_msg_id)
+    except Exception as e:
+        print("Error deleting warning message:", e)
+
+
 def send_message(chat_id, text, reply_to=None):
     payload = {
         "chat_id": chat_id,
@@ -103,8 +132,7 @@ def search_movie(query, first_name, category="Movie"):
         matches = []
 
         for entry in feed.entries:
-            title = entry.title.lower()
-            if query.lower() in title:
+            if query in entry.title.lower():
                 matches.append(f"🎬 {entry.title}\n🔗 {entry.link}")
 
         if matches:
