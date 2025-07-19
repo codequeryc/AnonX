@@ -9,6 +9,9 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Temporary storage for movie links (in production, use a database)
+movie_links = {}
+
 @app.route("/", methods=["GET"])
 def home():
     return "🤖 Movie Bot Running!"
@@ -21,13 +24,22 @@ def webhook():
         # Handle callback button press
         if "callback_query" in data:
             query = data["callback_query"]
+            callback_data = query["data"]
             chat_id = query["message"]["chat"]["id"]
             msg_id = query["message"]["message_id"]
-            movie_url = query["data"]
             user_name = query["from"]["first_name"]
 
-            text = f"📥 <b>Download Link</b>:\n<a href='{movie_url}'>{movie_url}</a>"
-            send_message(chat_id, text)
+            # Check if it's a movie link callback
+            if callback_data.startswith("movie_"):
+                movie_id = callback_data.split("_")[1]
+                link = movie_links.get(f"movie_{movie_id}")
+                
+                if link:
+                    text = f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>"
+                    send_message(chat_id, text)
+                else:
+                    send_message(chat_id, "⚠️ Link expired or not found")
+
             return {"ok": True}
 
         # Handle new messages
@@ -72,6 +84,7 @@ def webhook():
             return handle_search(chat_id, user_text[8:], user_name, "Series")
 
         return {"ok": True}
+
     except Exception as e:
         print(f"Error in webhook: {e}")
         return {"ok": False}
@@ -119,6 +132,7 @@ def delete_message(chat_id, message_id):
         print(f"Error deleting message: {e}")
 
 def search_filmyfly(query, user_name, category):
+    global movie_links
     try:
         url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -126,23 +140,32 @@ def search_filmyfly(query, user_name, category):
         soup = BeautifulSoup(res.text, "html.parser")
 
         results = []
-        for item in soup.select("div.A2"):
+        movie_links = {}  # Clear previous links
+        
+        for idx, item in enumerate(soup.select("div.A2")):
             a_tag = item.find("a", href=True)
             b_tag = item.find("b")
             if a_tag and b_tag:
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
+                
+                # Create unique callback ID
+                callback_id = f"movie_{idx}"
+                movie_links[callback_id] = link  # Store the link
+                
+                # Add button with callback data
                 results.append([{
                     "text": title,
-                    "url": link  # Direct URL as callback data
+                    "callback_data": callback_id
                 }])
 
-            if len(results) >= 5:
+            if len(results) >= 5:  # Limit to 5 results
                 break
 
         if results:
             return f"🔍 {category} results for <b>{query}</b>:", results
         return f"❌ Sorry {user_name}, no {category.lower()} found for <b>{query}</b>.", []
+
     except Exception as e:
         print(f"Error searching FilmyFly: {e}")
         return f"⚠️ Error searching for {category.lower()}. Please try again later.", []
