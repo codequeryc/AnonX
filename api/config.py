@@ -1,10 +1,15 @@
 import os
 import requests
+from flask import Flask, jsonify
+
+app = Flask(__name__)
 
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL")  # Example: https://your-xata-url/xata/your-workspace:main/tables/domains/data
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL")  # should end with /tables/domains/data
 
-def get_url_by_uid(uid):
+@app.route("/config")
+def get_and_update_url():
+    uid = "abc12"
     query_url = XATA_BASE_URL.replace("/data", "/query")
 
     headers = {
@@ -18,17 +23,30 @@ def get_url_by_uid(uid):
         }
     }
 
+    # Step 1: Get record from Xata
+    res = requests.post(query_url, headers=headers, json=payload)
+    data = res.json()
+    records = data.get("records", [])
+
+    if not records:
+        return jsonify({"error": "UID not found"}), 404
+
+    record = records[0]
+    record_id = record["id"]
+    original_url = record["url"]
+
+    # Step 2: Follow redirect
     try:
-        response = requests.post(query_url, headers=headers, json=payload, timeout=10)
-        data = response.json()
-        records = data.get("records", [])
+        r = requests.head(original_url, allow_redirects=True, timeout=5)
+        final_url = r.url
+    except:
+        final_url = original_url  # fallback if error
 
-        if records:
-            return records[0].get("url")
-        else:
-            print(f"❌ No record found for uid: {uid}")
-            return None
+    # Step 3: Update in Xata if redirected
+    if final_url != original_url:
+        update_url = f"{XATA_BASE_URL}/{record_id}"
+        update_payload = { "url": final_url }
+        requests.patch(update_url, headers=headers, json=update_payload)
 
-    except Exception as e:
-        print(f"🔥 Error: {e}")
-        return None
+    # Step 4: Return final URL to index.py
+    return jsonify({ "url": final_url })
