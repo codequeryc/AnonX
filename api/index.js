@@ -1,63 +1,60 @@
-const axios = require("axios");
-const { parseStringPromise } = require("xml2js");
+const fetch = require("node-fetch");
 
 module.exports = async (req, res) => {
-  const BOT_TOKEN = process.env.BOT_TOKEN;
-  const BLOG_URL = process.env.BLOG_URL;
-  const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-
-  // 🌐 GET request — browser pe visit karne par
   if (req.method === "GET") {
-    return res.status(200).send("🤖 AnonX Movie Bot is live on Vercel!");
+    return res.status(200).send("🤖 Movie Bot is Live");
   }
 
-  // 🤖 Telegram webhook POST request
   if (req.method === "POST") {
-    const data = req.body;
+    const body = req.body;
 
-    if (!data.message || !data.message.text) {
-      return res.status(200).json({ ok: true });
+    if (!body.message || !body.message.text) {
+      return res.status(200).send("No message");
     }
 
-    const chatId = data.message.chat.id;
-    const text = data.message.text.trim();
-    let reply = "";
+    const chatId = body.message.chat.id;
+    const text = body.message.text;
+    const command = text.trim().toLowerCase();
 
-    if (text === "/start") {
-      reply = "👋 Welcome to AnonX MovieBot!\nSend a movie name to get the download link.";
-    } else if (text === "/help") {
-      reply = "ℹ️ Just send a movie name. Example: `Animal 2023`";
+    if (command.startsWith("/movie")) {
+      const query = command.replace("/movie", "").trim();
+      const data = await searchMovie(query);
+      const message = data || `❌ Movie "${query}" not found.`;
+      await sendMessage(chatId, message);
     } else {
-      const searchUrl = `${BLOG_URL}/feeds/posts/default?q=${encodeURIComponent(text)}&alt=rss`;
-      try {
-        const response = await axios.get(searchUrl);
-        const parsed = await parseStringPromise(response.data);
-        const items = parsed.rss.channel[0].item;
-
-        if (items && items.length > 0) {
-          const entry = items[0];
-          const title = entry.title[0];
-          const link = entry.link[0];
-          reply = `🎬 *${title}*\n🔗 [Download Now](${link})`;
-        } else {
-          reply = "🚫 Movie not found.";
-        }
-      } catch (err) {
-        console.error("Feed Error:", err.message);
-        reply = "❌ Error fetching from Blogger feed.";
-      }
+      await sendMessage(chatId, "Send `/movie movie-name` to search.");
     }
 
-    await axios.post(TELEGRAM_API, {
-      chat_id: chatId,
-      text: reply,
-      parse_mode: "Markdown",
-      disable_web_page_preview: false
-    });
+    return res.status(200).send("OK");
+  }
+};
 
-    return res.status(200).json({ ok: true });
+// Send message to user
+async function sendMessage(chatId, text) {
+  const url = `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`;
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+}
+
+// Search movie from Blogger feed
+async function searchMovie(query) {
+  const url = process.env.BLOG_URL;
+  const res = await fetch(url);
+  const json = await res.json();
+  const entries = json.feed.entry;
+
+  if (!entries) return null;
+
+  for (let post of entries) {
+    const title = post.title.$t.toLowerCase();
+    if (title.includes(query.toLowerCase())) {
+      const link = post.link.find(l => l.rel === "alternate").href;
+      return `🎬 *${post.title.$t}*\n🔗 ${link}`;
+    }
   }
 
-  // ❌ Invalid method
-  res.status(405).send("Method Not Allowed");
-};
+  return null;
+}
