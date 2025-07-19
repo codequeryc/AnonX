@@ -2,10 +2,15 @@ from flask import Flask, request
 import requests
 import os
 import threading
+import logging
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
+# ✅ Enable logging for debugging
+logging.basicConfig(level=logging.DEBUG)
+
+# ✅ Telegram Bot Token & API URL
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -16,22 +21,26 @@ def home():
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
+    logging.debug(f"Received data: {data}")
 
-    # ✅ Handle callback query (Copy Link)
+    # ✅ Handle callback query for "Copy Link"
     if "callback_query" in data:
         query = data["callback_query"]
         chat_id = query["message"]["chat"]["id"]
         msg_id = query["message"]["message_id"]
         link = query["data"]
+
         send_message(chat_id, f"🔗 Copy this link:\n<code>{link}</code>", reply_to=msg_id)
         return {"ok": True}
 
-    # ✅ Handle user messages
+    # ✅ Handle regular user message
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     user_text = msg.get("text", "").strip()
     user_name = msg.get("from", {}).get("first_name", "Friend")
     msg_id = msg.get("message_id")
+
+    logging.debug(f"Message from {user_name}: {user_text}")
 
     if not chat_id or not user_text:
         return {"ok": True}
@@ -59,7 +68,7 @@ def webhook():
         send_message(chat_id, welcome)
         return {"ok": True}
 
-    # 🔍 Handle search
+    # 🔍 Handle search commands
     if user_text.lower().startswith("#movie "):
         return handle_search(chat_id, user_text[7:], user_name, "Movie")
 
@@ -74,15 +83,20 @@ def webhook():
 # 🔍 Search handler
 def handle_search(chat_id, query, user_name, category):
     query = query.strip()
+    logging.debug(f"Handling search for {category}: {query}")
+
     if not query:
         send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
         return {"ok": True}
 
     text, buttons = search_filmyfly(query, user_name, category)
+    logging.debug(f"Search results text: {text}")
+    logging.debug(f"Inline buttons: {buttons}")
+
     send_message(chat_id, text, buttons=buttons)
     return {"ok": True}
 
-# ✅ Send Telegram message
+# ✅ Send message to Telegram
 def send_message(chat_id, text, reply_to=None, buttons=None):
     payload = {
         "chat_id": chat_id,
@@ -96,14 +110,20 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
         payload["reply_markup"] = {"inline_keyboard": buttons}
 
     res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
-    return res.json() if res.ok else None
+    if res.ok:
+        return res.json()
+    else:
+        logging.error(f"Failed to send message: {res.text}")
+        return None
 
-# ✅ Delete Telegram message
+# ✅ Delete message
 def delete_message(chat_id, message_id):
-    requests.post(f"{TELEGRAM_API}/deleteMessage", json={
+    res = requests.post(f"{TELEGRAM_API}/deleteMessage", json={
         "chat_id": chat_id,
         "message_id": message_id
     })
+    if not res.ok:
+        logging.error(f"Failed to delete message: {res.text}")
 
 # 🔍 Scrape from filmyfly.party
 def search_filmyfly(query, user_name, category):
@@ -130,5 +150,5 @@ def search_filmyfly(query, user_name, category):
             return f"❌ Sorry {user_name}, no {category.lower()} found for <b>{query}</b>.", []
 
     except Exception as e:
+        logging.exception("Error during scraping")
         return f"⚠️ Error: {e}", []
-
