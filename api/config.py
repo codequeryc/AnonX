@@ -2,65 +2,33 @@ import os
 import requests
 
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL") 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL")  # Example: https://your-xata-url/xata/your-workspace:main/tables/domains/data
 
 def get_url_by_uid(uid):
-    headers = {
-        "Authorization": f"Bearer {XATA_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    query_url = XATA_BASE_URL.replace("/data", "/query")
 
-    try:
-        res = requests.get(XATA_BASE_URL, headers=headers, timeout=10)
-        if not res.ok:
-            print(f"[Xata ERROR] {res.text}")
-            return None
-
-        records = res.json().get("records", [])
-        for record in records:
-            if record.get("uid") == uid:
-                record_id = record.get("id")
-                saved_url = record.get("url")
-
-                try:
-                    r = requests.get(saved_url, headers=HEADERS, timeout=10, allow_redirects=True)
-                    final_url = r.url
-
-                    if final_url != saved_url:
-                        update_url(record_id, uid, final_url)
-                    return final_url
-
-                except Exception as e:
-                    print(f"[Redirect check failed] {e}")
-                    return saved_url
-
-        print(f"❌ UID '{uid}' not found.")
-        return None
-
-    except Exception as e:
-        print(f"[Fetch error] {e}")
-        return None
-
-
-def update_url(record_id, uid, new_url):
-    url = f"{XATA_BASE_URL}/{record_id}"
     headers = {
         "Authorization": f"Bearer {XATA_API_KEY}",
         "Content-Type": "application/json"
     }
 
     payload = {
-        "uid": uid,
-        "url": new_url
+        "filter": {
+            "uid": {"$equals": uid}
+        }
     }
 
     try:
-        res = requests.patch(url, headers=headers, json=payload, timeout=10)
-        if res.ok:
-            print(f"✅ Updated: {uid} → {new_url}")
+        response = requests.post(query_url, headers=headers, json=payload, timeout=10)
+        data = response.json()
+        records = data.get("records", [])
+
+        if records:
+            return records[0].get("url")
         else:
-            print(f"❌ Update failed: {res.text}")
+            print(f"❌ No record found for uid: {uid}")
+            return None
+
     except Exception as e:
-        print(f"[Update error] {e}")
+        print(f"🔥 Error: {e}")
+        return None
