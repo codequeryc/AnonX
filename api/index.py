@@ -134,7 +134,7 @@ def search_filmyfly(query, user_name, category):
                 link = "https://filmyfly.party" + a_tag["href"]
                 results.append([{
                     "text": title,
-                    "callback_data": link  # Direct URL as callback data
+                    "url": link  # Direct URL as callback data
                 }])
 
             if len(results) >= 5:
