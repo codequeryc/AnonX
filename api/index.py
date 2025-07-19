@@ -18,14 +18,28 @@ def get_filmyfly_url():
         "Authorization": f"Bearer {XATA_API_KEY}",
         "Content-Type": "application/json"
     }
+
     try:
-        res = requests.get(f"{XATA_BASE_URL}/tables/domains/data/abc12", headers=headers, timeout=10)
+        res = requests.post(
+            f"{XATA_BASE_URL}/tables/domains/query",
+            headers=headers,
+            json={
+                "filter": {
+                    "uid": "abc12"
+                }
+            },
+            timeout=10
+        )
         if res.ok:
-            data = res.json()
-            return data.get("url")
+            result = res.json()
+            records = result.get("records", [])
+            if records:
+                return records[0].get("url")
     except Exception as e:
         print("❌ Xata Error:", e)
-    return "url"
+
+    return None  # No fallback, return None if not found
+
 
 
 @app.route("/", methods=["GET"])
