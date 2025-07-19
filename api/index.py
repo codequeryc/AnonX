@@ -69,7 +69,7 @@ def send_help(chat_id, name):
         "🎥 <code>#movie Animal</code>\n"
         "📺 <code>#tv Breaking Bad</code>\n"
         "📽️ <code>#series Loki</code>\n\n"
-        "✨ I’ll fetch HD download links for you!"
+        "✨ I’ll find HD download links for you!"
     )
 
 
@@ -118,13 +118,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-    f"╭───────✦🎬✦───────╮\n"
-    f"<b>🎬 Title:</b> <code>{title}</code>\n"
+    f"🎬 <b>{title}</b>\n"
+    f"━━━━━━━━━━━━━━━━━━━\n"
     f"<b>📁 Size:</b> <code>{size}</code>\n"
     f"<b>🈯 Language:</b> <code>{lang}</code>\n"
     f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-    f"╰───────────────╯\n\n"
-    f"<b>📥 Download:</b> <a href='{download_link}'>👉 Click Here 👈</a>"
+    f"━━━━━━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
