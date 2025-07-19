@@ -5,9 +5,27 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+XATA_API_KEY = os.environ.get("XATA_API_KEY")
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL")  # e.g. https://mydb.xata.sh/db/mydb:main
+
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 movie_links = {}  # callback_id → {link, title}
+
+
+def get_filmyfly_url():
+    headers = {
+        "Authorization": f"Bearer {XATA_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    try:
+        res = requests.get(f"{XATA_BASE_URL}/tables/domains/data/abc12", headers=headers, timeout=10)
+        if res.ok:
+            data = res.json()
+            return data.get("url", "https://filmyfly.party")
+    except Exception as e:
+        print("❌ Xata Error:", e)
+    return "https://filmyfly.party"
 
 
 @app.route("/", methods=["GET"])
@@ -29,7 +47,6 @@ def webhook():
     msg_id = msg.get("message_id")
     user_name = msg.get("from", {}).get("first_name", "Friend")
 
-    # 🆕 Welcome new group member
     if "new_chat_members" in msg:
         for m in msg["new_chat_members"]:
             send_help(chat_id, m.get("first_name", "Friend"))
@@ -38,7 +55,7 @@ def webhook():
     if not chat_id or not msg_text:
         return {"ok": True}
 
-    # 🚫 Block links
+    # Block links
     if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
         warn = f"⚠️ {user_name}, sharing links is not allowed."
         reply = send_message(chat_id, warn, reply_to=msg_id)
@@ -47,11 +64,11 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, reply["result"]["message_id"])).start()
         return {"ok": True}
 
-    # 🆘 Commands
+    # Commands
     if msg_text.lower() in ["/start", "/help", "help"]:
         return send_help(chat_id, user_name)
 
-    # 🔍 Search
+    # Search commands
     if msg_text.lower().startswith("#movie "):
         return handle_search(chat_id, msg_text[7:], "Movie")
     if msg_text.lower().startswith("#tv "):
@@ -78,15 +95,20 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
-    soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
+    base_url = get_filmyfly_url()
+    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
+
+    try:
+        soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
+    except Exception:
+        return send_message(chat_id, "❌ Failed to fetch results.")
 
     buttons = []
     for item in soup.select("div.A2"):
         a, b = item.find("a", href=True), item.find("b")
         if a and b:
             title = b.text.strip()
-            link = "https://filmyfly.party" + a["href"]
+            link = base_url + a["href"]
             cid = f"movie_{abs(hash(title + link))}"
             movie_links[cid] = {"title": title, "link": link}
             buttons.append([{"text": title, "callback_data": cid}])
@@ -106,7 +128,11 @@ def handle_callback(query):
         return send_message(chat_id, "⚠️ Link expired or not found.")
 
     link, title = movie["link"], movie["title"]
-    soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
+
+    try:
+        soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
+    except Exception:
+        return send_message(chat_id, "❌ Failed to load movie details.")
 
     poster = soup.select_one("div.movie-thumb img")
     ss = soup.select_one("div.ss img")
@@ -118,13 +144,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-    f"🎬 <b>{title}</b>\n"
-    f"━━━━━━━━━━━━━━━━━━━\n"
-    f"<b>📁 Size:</b> <code>{size}</code>\n"
-    f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-    f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-    f"━━━━━━━━━━━━━━━━━━━\n"
-    f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
+        f"🎬 <b>{title}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📁 Size:</b> <code>{size}</code>\n"
+        f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+        f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
@@ -159,6 +185,7 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
         payload["reply_to_message_id"] = reply_to
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": buttons}
+
     r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     return r.json() if r.ok else None
 
