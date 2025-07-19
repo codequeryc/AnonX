@@ -35,3 +35,4 @@ def get_and_update_url(uid):
         requests.patch(update_url, headers=headers, json={"url": final_url})
 
     return final_url
+print("✅ config.py loaded")
