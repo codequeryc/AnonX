@@ -1,5 +1,5 @@
 from flask import Flask, request
-import requests, os, threading, random, json
+import requests, os, random, json
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -24,48 +24,49 @@ blogger_cache = {
 
 def get_random_blogger_post():
     global blogger_cache
-    
     if not BLOG_URL:
         return None
-        
+
     try:
-        # Return cached posts if still valid
-        if blogger_cache['last_fetched'] and \
-           datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry'] and \
-           blogger_cache['posts']:
+        if (
+            blogger_cache['last_fetched'] and
+            datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry'] and
+            blogger_cache['posts']
+        ):
             return random.choice(blogger_cache['posts'])
-            
-        # Fetch fresh data
+
         feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
         response = requests.get(feed_url, headers=HEADERS, timeout=10)
         response.raise_for_status()
-        
-        data = json.loads(response.text)
-        blogger_cache['posts'] = [
-            entry['link']['href'] 
-            for entry in data['feed']['entry']
-        ]
+        data = response.json()
+
+        posts = []
+        for entry in data['feed'].get('entry', []):
+            for link in entry.get('link', []):
+                if link.get('rel') == 'alternate' and link.get('type') == 'text/html':
+                    posts.append(link['href'])
+                    break
+
+        blogger_cache['posts'] = posts
         blogger_cache['last_fetched'] = datetime.now()
-        
-        return random.choice(blogger_cache['posts']) if blogger_cache['posts'] else None
+
+        return random.choice(posts) if posts else None
+
     except Exception as e:
         print(f"Error fetching Blogger JSON feed: {e}")
         return None
 
 def get_base_url():
-    xata_url = f"{XATA_BASE_URL}/tables/domains/query"
-    headers = {
-        "Authorization": f"Bearer {XATA_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "filter": {"uid": "abc12"},
-        "columns": ["url"]
-    }
-
     try:
-        res = requests.post(xata_url, headers=headers, json=payload, timeout=10)
+        url = f"{XATA_BASE_URL}/tables/domains/query"
+        headers = {
+            "Authorization": f"Bearer {XATA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
+        res = requests.post(url, headers=headers, json=payload, timeout=10)
         res.raise_for_status()
+
         records = res.json().get("records", [])
         if not records:
             return None
@@ -74,7 +75,7 @@ def get_base_url():
         record_id = records[0]["id"]
 
         try:
-            final_url = requests.get(original_url, headers=HEADERS, allow_redirects=True, timeout=10).url.rstrip("/")
+            final_url = requests.get(original_url, headers=HEADERS, timeout=10).url.rstrip("/")
         except:
             final_url = original_url
 
@@ -188,12 +189,8 @@ def handle_callback(query):
     download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
     download_link = download["href"] if download and download.get("href") else link
 
-    # Get random blogger post
     blog_post = get_random_blogger_post()
-    if blog_post:
-        final_url = f"{blog_post}?url={quote(download_link)}"
-    else:
-        final_url = download_link
+    final_url = f"{blog_post}?url={quote(download_link)}" if blog_post else download_link
 
     caption = (
         f"🎬 <b>{title}</b>\n"
