@@ -1,5 +1,5 @@
-import os
 import requests
+import os
 
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
@@ -10,35 +10,28 @@ def get_and_update_url(uid):
         "Content-Type": "application/json"
     }
 
-    # Search record by UID
-    query_url = f"{XATA_BASE_URL}/query"
-    payload = {
-        "filter": {
-            "uid": {
-                "$equals": uid
-            }
-        }
-    }
-    res = requests.post(query_url, headers=headers, json=payload)
-    data = res.json()
-    records = data.get("records", [])
-    if not records:
+    # 1. Get record
+    url = f"{XATA_BASE_URL}/tables/urls/data/{uid}"
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code != 200:
+        return None  # or handle error
+
+    record = response.json()
+    original_url = record.get("url")
+
+    if not original_url:
         return None
 
-    record = records[0]
-    old_url = record.get("url")
-    record_id = record.get("id")
-
+    # 2. Check if it redirects
     try:
-        response = requests.get(old_url, allow_redirects=True, timeout=5)
-        new_url = response.url
+        final_url = requests.get(original_url, allow_redirects=True, timeout=5).url
     except:
-        new_url = old_url
+        return original_url  # fallback
 
-    # Update DB if changed
-    if old_url != new_url:
-        update_url = f"{XATA_BASE_URL}/data/{record_id}"
-        update_payload = {"url": new_url}
-        requests.patch(update_url, headers=headers, json=update_payload)
+    # 3. If redirected, update
+    if final_url != original_url:
+        update_url = f"{XATA_BASE_URL}/tables/urls/data/{uid}"
+        requests.patch(update_url, headers=headers, json={"url": final_url})
 
-    return new_url
+    return final_url
