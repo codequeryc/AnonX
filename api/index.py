@@ -29,6 +29,7 @@ def webhook():
         if not chat_id or not msg_text:
             return {"ok": True}
 
+        # Block external links
         if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
             warning = f"⚠️ {user_name}, sharing links is not allowed."
             warn_msg = send_message(chat_id, warning, reply_to=msg_id)
@@ -79,10 +80,23 @@ def handle_callback(query):
         res = requests.get(link, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
+        # Media scraping
         poster_tag = soup.select_one("div.movie-thumb img")
         ss_tag = soup.select_one("div.ss img")
         poster_url = poster_tag["src"] if poster_tag else None
         ss_url = ss_tag["src"] if ss_tag else None
+
+        # Extract 2nd, 5th, 7th <div class="fname">
+        info_blocks = soup.select("div.fname")
+        extra_info = []
+        for i in [1, 4, 6]:  # 0-based indexing: 2nd, 5th, 7th
+            if i < len(info_blocks):
+                label = info_blocks[i].contents[0].strip(": ")
+                value_tag = info_blocks[i].select_one("div.colorb")
+                value = value_tag.get_text(strip=True) if value_tag else "N/A"
+                extra_info.append(f"<b>{label}</b>: {value}")
+
+        extra_details = "\n".join(extra_info)
 
         media = []
 
@@ -90,7 +104,7 @@ def handle_callback(query):
             media.append({
                 "type": "photo",
                 "media": poster_url,
-                "caption": f"<b>🎬 {title}</b>\n<a href='{link}'>📥 Download</a>",
+                "caption": f"<b>🎬 {title}</b>\n{extra_details}\n\n<a href='{link}'>📥 Download</a>",
                 "parse_mode": "HTML"
             })
 
