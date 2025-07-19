@@ -47,7 +47,7 @@ if msg_text.lower() in ["/start", "/help", "help"]:
         "*Search using:*\n"
         "• `#movie Animal`\n"
         "• `#tv Breaking Bad`\n"
-        "• `#series Loki`",
+        "• `#series Loki`"
         parse_mode="MarkdownV2"
     )
 
