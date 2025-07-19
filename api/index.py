@@ -1,7 +1,7 @@
 from flask import Flask, request
-import requests
 import feedparser
 import os
+import requests
 
 app = Flask(__name__)
 
@@ -9,28 +9,41 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BLOG_URL = os.environ.get("BLOG_URL")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
+
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Bot Running!"
+    return "🤖 Movie Request Bot is live!"
 
-@app.route("/", methods=["POST"])
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
-    message = data.get("message", {})
-    chat_id = message.get("chat", {}).get("id")
+    data = request.get_json()
+
+    if not data or "message" not in data:
+        return {"status": "ignored"}
+
+    message = data["message"]
+    chat_id = message["chat"]["id"]
     text = message.get("text", "").strip().lower()
-    first_name = message.get("from", {}).get("first_name", "Friend")
+    first_name = message["from"].get("first_name", "User")
 
-    if not chat_id or not text:
-        return {"ok": True}
+    if not text:
+        return {"status": "no text"}
 
-    if text == "/start":
-        reply = f"🎬 Welcome {first_name}! Send any movie name to search."
-    else:
-        reply = search_movie(text, first_name)
+    if text == "/help":
+        help_text = (
+            "📽️ *Movie Request Bot Help*\n\n"
+            "👉 Just send the name of a movie or show and I'll try to find it.\n"
+            "✅ Example: `Animal`, `Pathaan`, `KGF`\n\n"
+            "ℹ️ I search based on latest blog posts."
+        )
+        send_message(chat_id, help_text, parse_mode="Markdown")
+        return {"status": "help sent"}
 
-    send_message(chat_id, reply)
-    return {"ok": True}
+    result = search_movie(text, first_name)
+    send_message(chat_id, result, parse_mode="HTML")
+    return {"status": "done"}
+
 
 def search_movie(query, first_name):
     try:
@@ -41,21 +54,29 @@ def search_movie(query, first_name):
         for entry in feed.entries:
             title = entry.title.lower()
             if query in title:
-                matches.append(f"🎬 {entry.title}\n🔗 {entry.link}")
+                matches.append(f"🎬 <b>{entry.title}</b>\n🔗 <a href='{entry.link}'>Watch Now</a>")
 
         if matches:
             return "\n\n".join(matches[:5])
         else:
-            return f"❌ Sorry {first_name}, no movies found for: <b>{query}</b>"
+            return (
+                f"👤 <b>{first_name} said:</b> <code>{query}</code>\n"
+                f"❌ Sorry <b>{first_name}</b>, no movies found for: <b>{query}</b>"
+            )
 
     except Exception as e:
-        return f"⚠️ Error while searching: {e}"
+        return f"⚠️ Error while searching: <code>{e}</code>"
 
-def send_message(chat_id, text):
+
+def send_message(chat_id, text, parse_mode=None):
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
+        "parse_mode": parse_mode or "HTML",
+        "disable_web_page_preview": False
     }
     requests.post(TELEGRAM_API, json=payload)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
