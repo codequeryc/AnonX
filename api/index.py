@@ -140,7 +140,7 @@ def search_filmyfly(query, user_name, category):
             if a_tag and b_tag:
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
-                results.append([{"text": title, "callback_data": link}])
+                results.append([{"text": title, "url": link}])
             if len(results) >= 5:
                 break
 
