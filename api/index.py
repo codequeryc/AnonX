@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-# Configuration
+# Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BLOG_URL = os.environ.get("BLOG_URL")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -27,13 +27,12 @@ def webhook():
     if not chat_id or not text:
         return {"ok": True}
 
-    # 🔗 Delete links and warn
+    # 🔗 If message contains link, reply with warning (don't delete)
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
-        delete_message(chat_id, message_id)
         send_warning_reply(chat_id, message_id, first_name)
         return {"ok": True}
 
-    # 🤖 Bot commands
+    # 🤖 Commands or search
     if text.lower() == "/start":
         reply = f"🎬 Welcome {first_name}! Send any movie name to search."
     else:
@@ -68,15 +67,8 @@ def send_message(chat_id, text):
     }
     requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
-def delete_message(chat_id, message_id):
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id
-    }
-    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
-
 def send_warning_reply(chat_id, message_id, first_name):
-    warning = f"⚠️ {first_name}, sending links is not allowed in this group. Please follow the rules."
+    warning = f"⚠️ {first_name}, sharing links is not allowed in this group. Please follow the rules."
     payload = {
         "chat_id": chat_id,
         "text": warning,
