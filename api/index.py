@@ -7,6 +7,7 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+BASE_URL = "https://filmyfly.party"  # ✅ Added here
 movie_links = {}  # callback_id → {link, title}
 
 
@@ -78,7 +79,7 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
+    url = f"{BASE_URL}/site-1.html?to-search={query.replace(' ', '+')}"
     soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
 
     buttons = []
@@ -86,7 +87,7 @@ def handle_search(chat_id, query, label):
         a, b = item.find("a", href=True), item.find("b")
         if a and b:
             title = b.text.strip()
-            link = "https://filmyfly.party" + a["href"]
+            link = BASE_URL + a["href"]
             cid = f"movie_{abs(hash(title + link))}"
             movie_links[cid] = {"title": title, "link": link}
             buttons.append([{"text": title, "callback_data": cid}])
