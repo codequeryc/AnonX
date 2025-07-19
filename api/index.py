@@ -16,6 +16,18 @@ def home():
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
+    
+    # Handle inline queries
+    if "inline_query" in data:
+        handle_inline_query(data["inline_query"])
+        return {"ok": True}
+    
+    # Handle callback queries (button clicks)
+    if "callback_query" in data:
+        handle_callback_query(data["callback_query"])
+        return {"ok": True}
+    
+    # Normal message handling
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     user_text = msg.get("text", "").strip()
@@ -43,7 +55,8 @@ def webhook():
             "Search with:\n"
             "<code>#movie Animal</code>\n"
             "<code>#tv Breaking Bad</code>\n"
-            "<code>#series Loki</code>"
+            "<code>#series Loki</code>\n\n"
+            "Or type <code>@{YOUR_BOT_USERNAME}</code> in any chat to search inline!"
         )
         send_message(chat_id, welcome)
         return {"ok": True}
@@ -59,6 +72,85 @@ def webhook():
         return handle_search(chat_id, user_text[8:], user_name, "Series")
 
     return {"ok": True}
+
+def handle_inline_query(inline_query):
+    query = inline_query.get("query", "").strip()
+    user_id = inline_query["from"]["id"]
+    
+    if not query:
+        return
+    
+    try:
+        # Search for movies/TV shows
+        results = []
+        url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        for idx, item in enumerate(soup.select("div.A2")[:10]):
+            a_tag = item.find("a", href=True)
+            b_tag = item.find("b")
+            if a_tag and b_tag:
+                title = b_tag.text.strip()
+                link = "https://filmyfly.party" + a_tag["href"]
+                
+                results.append({
+                    "type": "article",
+                    "id": str(idx),
+                    "title": title,
+                    "input_message_content": {
+                        "message_text": f"🎬 <b>{title}</b>\n🔗 {link}",
+                        "parse_mode": "HTML"
+                    },
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [{"text": "View Details", "url": link}],
+                            [{"text": "Search Again", "switch_inline_query_current_chat": query}]
+                        ]
+                    }
+                })
+        
+        if not results:
+            results.append({
+                "type": "article",
+                "id": "0",
+                "title": "No results found",
+                "input_message_content": {
+                    "message_text": f"❌ No results found for '{query}'",
+                    "parse_mode": "HTML"
+                }
+            })
+        
+        requests.post(f"{TELEGRAM_API}/answerInlineQuery", json={
+            "inline_query_id": inline_query["id"],
+            "results": results,
+            "cache_time": 300
+        })
+    except Exception as e:
+        print(f"Error handling inline query: {e}")
+
+def handle_callback_query(callback_query):
+    data = callback_query["data"]
+    message = callback_query["message"]
+    chat_id = message["chat"]["id"]
+    message_id = message["message_id"]
+    user_id = callback_query["from"]["id"]
+    
+    # You can add different callback actions here
+    if data.startswith("delete_"):
+        delete_message(chat_id, message_id)
+    else:
+        # Default action - just answer the callback
+        answer_callback_query(callback_query["id"])
+
+def answer_callback_query(callback_query_id, text=None):
+    payload = {
+        "callback_query_id": callback_query_id
+    }
+    if text:
+        payload["text"] = text
+    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", json=payload)
 
 # 🔍 Search and respond
 def handle_search(chat_id, query, user_name, category):
@@ -120,3 +212,6 @@ def search_filmyfly(query, user_name, category):
 
     except Exception as e:
         return f"⚠️ Error: {e}", []
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
