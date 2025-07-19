@@ -6,11 +6,13 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}  # ✅ Global callback_id → {link, title}
+movie_links = {}  # callback_id → {link, title}
+
 
 @app.route("/", methods=["GET"])
 def home():
     return "🤖 Movie Bot Running!"
+
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -86,25 +88,33 @@ def handle_callback(query):
         poster_url = poster_tag["src"] if poster_tag else None
         ss_url = ss_tag["src"] if ss_tag else None
 
-        # Extract 2nd, 5th, 7th <div class="fname">
-        info_blocks = soup.select("div.fname")
-        extra_info = []
-        for i in [1, 4, 6]:  # 0-based indexing: 2nd, 5th, 7th
-            if i < len(info_blocks):
-                label = info_blocks[i].contents[0].strip(": ")
-                value_tag = info_blocks[i].select_one("div.colorb")
-                value = value_tag.get_text(strip=True) if value_tag else "N/A"
-                extra_info.append(f"<b>{label}</b>: {value}")
+        # ✅ Extract Size, Language, Genre
+        def extract_value(label_text):
+            for block in soup.select("div.fname"):
+                label = block.contents[0].strip(': ').lower()
+                if label_text.lower() in label:
+                    value_tag = block.select_one("div")
+                    return value_tag.get_text(strip=True) if value_tag else "N/A"
+            return "N/A"
 
-        extra_details = "\n".join(extra_info)
+        size = extract_value("Size")
+        language = extract_value("Language")
+        genre = extract_value("Genre")
+
+        caption = (
+            f"<b>🎬 {title}</b>\n\n"
+            f"<b>📁 Size:</b> {size}\n"
+            f"<b>🈯 Language:</b> {language}\n"
+            f"<b>🎭 Genre:</b> {genre}\n\n"
+            f"<a href='{link}'>📥 Download</a>"
+        )
 
         media = []
-
         if poster_url:
             media.append({
                 "type": "photo",
                 "media": poster_url,
-                "caption": f"<b>🎬 {title}</b>\n{extra_details}\n\n<a href='{link}'>📥 Download</a>",
+                "caption": caption,
                 "parse_mode": "HTML"
             })
 
@@ -125,7 +135,7 @@ def handle_callback(query):
         return {"ok": True}
     except Exception as e:
         print(f"[Callback Error] {e}")
-        send_message(chat_id, "⚠️ Error fetching movie poster or screenshot.")
+        send_message(chat_id, "⚠️ Error fetching movie info.")
         return {"ok": False}
 
 
