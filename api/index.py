@@ -118,11 +118,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-        f"<b>🎬 {title}</b>\n\n"
-        f"<b>📁 Size:</b> {size}\n"
-        f"<b>🈯 Language:</b> {lang}\n"
-        f"<b>🎭 Genre:</b> {genre}\n\n"
-        f"<a href='{download_link}'>📥 Download</a>"
+    f"╭───────✦🎬✦───────╮\n"
+    f"<b>🎬 Title:</b> <code>{title}</code>\n"
+    f"<b>📁 Size:</b> <code>{size}</code>\n"
+    f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+    f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+    f"╰───────────────╯\n\n"
+    f"<b>📥 Download:</b> <a href='{download_link}'>👉 Click Here 👈</a>"
     )
 
     media = []
