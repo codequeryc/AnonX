@@ -43,7 +43,7 @@ def get_base_url():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Bot Running!"
+    return "🤖 Movie Bot Running! + get_base_url()"
 
 
 @app.route("/", methods=["POST"])
