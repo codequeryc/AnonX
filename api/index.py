@@ -3,7 +3,6 @@ import requests
 import feedparser
 import os
 import threading
-import time
 
 app = Flask(__name__)
 
@@ -11,28 +10,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BLOG_URL = os.environ.get("BLOG_URL")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Store message info (chat_id, message_id, timestamp)
-tracked_messages = []
-
-# Start cleaner thread on app start
-def start_cleaner():
-    def cleaner():
-        while True:
-            now = int(time.time())
-            for item in tracked_messages[:]:
-                if now - item["timestamp"] > 10:
-                    delete_message(item["chat_id"], item["message_id"])
-                    tracked_messages.remove(item)
-            time.sleep(1)  # check every 5 seconds
-    threading.Thread(target=cleaner, daemon=True).start()
-
-start_cleaner()
-
-
 @app.route("/", methods=["GET"])
 def home():
     return "🤖 Movie Bot Running!"
-
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -47,13 +27,6 @@ def webhook():
     if not chat_id or not text:
         return {"ok": True}
 
-    # Track incoming user message
-    tracked_messages.append({
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "timestamp": int(time.time())
-    })
-
     # 🔗 Block links
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
         warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
@@ -67,19 +40,15 @@ def webhook():
             "reply_to_message_id": message_id
         })
 
-        # Delete user's message immediately
+        # Delete the user's message
         delete_message(chat_id, message_id)
 
-        # Track bot's warning message for 20s auto-delete
+        # Delete the warning after 20 seconds (non-blocking)
         if resp.status_code == 200:
             result = resp.json()
-            warn_id = result.get("result", {}).get("message_id")
-            if warn_id:
-                tracked_messages.append({
-                    "chat_id": chat_id,
-                    "message_id": warn_id,
-                    "timestamp": int(time.time())
-                })
+            warning_msg_id = result.get("result", {}).get("message_id")
+            if warning_msg_id:
+                threading.Timer(20.0, delete_message, args=(chat_id, warning_msg_id)).start()
 
         return {"ok": True}
 
@@ -135,25 +104,15 @@ def send_message(chat_id, text, reply_to=None):
     if reply_to:
         payload["reply_to_message_id"] = reply_to
 
-    resp = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
-
-    # Track bot message for auto-delete
-    if resp.status_code == 200:
-        result = resp.json()
-        message_id = result.get("result", {}).get("message_id")
-        if message_id:
-            tracked_messages.append({
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "timestamp": int(time.time())
-            })
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
 
 def delete_message(chat_id, message_id):
-    requests.post(f"{TELEGRAM_API}/deleteMessage", json={
+    payload = {
         "chat_id": chat_id,
         "message_id": message_id
-    })
+    }
+    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
 
 
 def search_movie(query, first_name, category="Movie"):
