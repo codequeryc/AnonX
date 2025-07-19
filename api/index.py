@@ -4,12 +4,14 @@ import os
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN") or "YOUR_BOT_TOKEN"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BLOG_API_URL = os.environ.get("BLOG_URL") or "https://yourblog.blogspot.com"
+
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Bot is running on Vercel!"
+    return "🤖 Telegram Movie Bot is live on Vercel!"
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -20,7 +22,7 @@ def webhook():
         text = data["message"].get("text", "")
 
         if text == "/start":
-            reply = "🎬 Welcome to Movie Bot!\nSend movie name to get a link."
+            reply = "🎬 Welcome to Movie Bot!\nSend a movie name to get the download link."
         else:
             reply = search_movie(text)
 
@@ -32,13 +34,14 @@ def webhook():
     return {"ok": True}
 
 def search_movie(query):
-    movies = {
-        "animal": "https://example.com/animal-2023.mp4",
-        "kgf 2": "https://example.com/kgf2-1080p.mp4"
-    }
+    try:
+        find_url = "https://{your-vercel-domain}.vercel.app/api/find"  # update this later
+        response = requests.post(find_url, json={"query": query})
+        result = response.json()
 
-    for title, link in movies.items():
-        if query.lower() in title.lower():
-            return f"🎥 Found: {title}\n🔗 {link}"
-
-    return "❌ Movie not found!"
+        if result.get("found"):
+            return f"🎬 Found: {result['title']}\n🔗 {result['link']}"
+        else:
+            return "❌ Movie not found in blog."
+    except Exception as e:
+        return f"⚠️ Error while searching: {e}"
