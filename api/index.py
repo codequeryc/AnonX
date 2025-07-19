@@ -134,7 +134,7 @@ def search_filmyfly(query, category):
                 callback_id = f"movie_{idx}"
                 movie_links[callback_id] = link
                 results.append([{"text": title, "callback_data": callback_id}])
-            if len(results) >= 5:
+            if len(results) >= 10:
                 break
 
         if results:
