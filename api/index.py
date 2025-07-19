@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL")  # e.g. https://mydb.xata.sh/db/mydb:main
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL") 
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -22,10 +22,10 @@ def get_filmyfly_url():
         res = requests.get(f"{XATA_BASE_URL}/tables/domains/data/abc12", headers=headers, timeout=10)
         if res.ok:
             data = res.json()
-            return data.get("url", "https://filmyfly.party")
+            return data.get("url")
     except Exception as e:
         print("❌ Xata Error:", e)
-    return "https://filmyfly.party"
+    return "url"
 
 
 @app.route("/", methods=["GET"])
