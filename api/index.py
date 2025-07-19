@@ -6,45 +6,38 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL") 
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-movie_links = {}  # callback_id → {link, title}
+movie_links = {}
 
-
+# ✅ Fetch domain URL from Xata by uid
 def get_filmyfly_url():
     headers = {
         "Authorization": f"Bearer {XATA_API_KEY}",
         "Content-Type": "application/json"
     }
-
     try:
         res = requests.post(
             f"{XATA_BASE_URL}/tables/domains/query",
             headers=headers,
-            json={
-                "filter": {
-                    "uid": "abc12"
-                }
-            },
+            json={"filter": {"uid": "abc12"}},
             timeout=10
         )
         if res.ok:
-            result = res.json()
-            records = result.get("records", [])
+            records = res.json().get("records", [])
             if records:
                 return records[0].get("url")
     except Exception as e:
         print("❌ Xata Error:", e)
-
-    return None  # No fallback, return None if not found
-
+    return None
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Bot Running!"
+    url = get_filmyfly_url()
+    return f"🤖 Movie Bot Running!<br>URL: {url or '❌ Not Found'}"
 
 
 @app.route("/", methods=["POST"])
@@ -69,7 +62,6 @@ def webhook():
     if not chat_id or not msg_text:
         return {"ok": True}
 
-    # Block links
     if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
         warn = f"⚠️ {user_name}, sharing links is not allowed."
         reply = send_message(chat_id, warn, reply_to=msg_id)
@@ -78,11 +70,9 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, reply["result"]["message_id"])).start()
         return {"ok": True}
 
-    # Commands
     if msg_text.lower() in ["/start", "/help", "help"]:
         return send_help(chat_id, user_name)
 
-    # Search commands
     if msg_text.lower().startswith("#movie "):
         return handle_search(chat_id, msg_text[7:], "Movie")
     if msg_text.lower().startswith("#tv "):
@@ -94,7 +84,7 @@ def webhook():
 
 
 def send_help(chat_id, name):
-    return send_message(chat_id, 
+    return send_message(chat_id,
         f"👋 <b>Welcome, {name}!</b>\n\n"
         "🎬 <b>Search Movies & Series:</b>\n"
         "🎥 <code>#movie Animal</code>\n"
@@ -110,8 +100,10 @@ def handle_search(chat_id, query, label):
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
     base_url = get_filmyfly_url()
-    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
+    if not base_url:
+        return send_message(chat_id, "❌ Source URL not found in database.")
 
+    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
     try:
         soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
     except Exception:
@@ -142,7 +134,6 @@ def handle_callback(query):
         return send_message(chat_id, "⚠️ Link expired or not found.")
 
     link, title = movie["link"], movie["title"]
-
     try:
         soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
     except Exception:
@@ -199,7 +190,6 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
         payload["reply_to_message_id"] = reply_to
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": buttons}
-
     r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     return r.json() if r.ok else None
 
