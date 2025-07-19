@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}  # Temporary storage for links
+movie_links = {}
 
 @app.route("/", methods=["GET"])
 def home():
@@ -17,11 +17,11 @@ def webhook():
     try:
         data = request.get_json(force=True)
 
-        # Handle inline button callback
+        # Callback button
         if "callback_query" in data:
             return handle_callback(data["callback_query"])
 
-        # Handle new message
+        # New message
         msg = data.get("message", {})
         chat_id = msg.get("chat", {}).get("id")
         msg_text = msg.get("text", "").strip()
@@ -31,27 +31,29 @@ def webhook():
         if not chat_id or not msg_text:
             return {"ok": True}
 
-        # Block external links
+        # Block links
         if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
-            warn = f"⚠️ {user_name}, sharing links is not allowed."
-            warn_msg = send_message(chat_id, warn, reply_to=msg_id)
+            warning = f"⚠️ {user_name}, sharing links is not allowed."
+            warn_msg = send_message(chat_id, warning, reply_to=msg_id)
             delete_message(chat_id, msg_id)
             if warn_msg:
                 warn_id = warn_msg.get("result", {}).get("message_id")
                 threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
             return {"ok": True}
 
-        # Handle commands
+        # Start
         if msg_text.lower() == "/start":
-            return send_message(chat_id,
+            welcome = (
                 f"🎬 Welcome {user_name}!\n"
                 "Search with:\n"
                 "<code>#movie Animal</code>\n"
                 "<code>#tv Breaking Bad</code>\n"
                 "<code>#series Loki</code>"
             )
+            send_message(chat_id, welcome)
+            return {"ok": True}
 
-        # Handle search
+        # Search commands
         if msg_text.lower().startswith("#movie "):
             return handle_search(chat_id, msg_text[7:], user_name, "Movie")
         if msg_text.lower().startswith("#tv "):
@@ -67,18 +69,40 @@ def webhook():
 def handle_callback(query):
     try:
         chat_id = query["message"]["chat"]["id"]
-        msg_id = query["message"]["message_id"]
         callback_data = query["data"]
-        user_name = query["from"]["first_name"]
 
         if callback_data.startswith("movie_"):
             movie_id = callback_data
             link = movie_links.get(movie_id)
-            text = f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>" if link else "⚠️ Link expired or not found"
-            send_message(chat_id, text)
+
+            if not link:
+                send_message(chat_id, "⚠️ Link expired or not found")
+                return {"ok": True}
+
+            # Scrape movie page
+            headers = {"User-Agent": "Mozilla/5.0"}
+            res = requests.get(link, headers=headers, timeout=10)
+            soup = BeautifulSoup(res.text, "html.parser")
+
+            # Find poster image
+            poster_tag = soup.select_one("div.movie-thumb img")
+            poster_url = poster_tag["src"] if poster_tag else None
+
+            # Send poster + link
+            if poster_url:
+                response = requests.post(f"{TELEGRAM_API}/sendPhoto", json={
+                    "chat_id": chat_id,
+                    "photo": poster_url,
+                    "caption": f"🎬 <b>Download Link</b>:\n<a href='{link}'>{link}</a>",
+                    "parse_mode": "HTML"
+                }, timeout=10)
+            else:
+                send_message(chat_id, f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>")
+
         return {"ok": True}
     except Exception as e:
         print(f"[Callback Error] {e}")
+        send_message(chat_id, "⚠️ Error fetching movie poster.")
         return {"ok": False}
 
 def handle_search(chat_id, query, user_name, category):
