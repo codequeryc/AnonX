@@ -5,10 +5,10 @@ import os
 
 app = Flask(__name__)
 
-# Environment variables for security
+# Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BLOG_URL = os.environ.get("BLOG_URL")
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -18,21 +18,23 @@ def home():
 def webhook():
     data = request.get_json(force=True)
     message = data.get("message", {})
-    chat_id = message.get("chat", {}).get("id")
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
     text = message.get("text", "").strip()
     first_name = message.get("from", {}).get("first_name", "Friend")
+    user_id = message.get("from", {}).get("id")
     message_id = message.get("message_id")
 
-    # If message is missing required data
     if not chat_id or not text:
         return {"ok": True}
 
-    # 🔗 Delete message if it contains a link
-    if "http://" in text.lower() or "https://" in text.lower() or "t.me" in text.lower() or "telegram.me" in text.lower():
+    # 🔗 Detect and block links
+    if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
         delete_message(chat_id, message_id)
+        warn_message(chat_id, user_id, first_name)
         return {"ok": True}
 
-    # 🤖 Handle commands and queries
+    # 🤖 Command or search
     if text.lower() == "/start":
         reply = f"🎬 Welcome {first_name}! Send any movie name to search."
     else:
@@ -48,15 +50,13 @@ def search_movie(query, first_name):
         matches = []
 
         for entry in feed.entries:
-            title = entry.title.lower()
-            if query in title:
+            if query in entry.title.lower():
                 matches.append(f"🎬 {entry.title}\n🔗 {entry.link}")
 
         if matches:
             return "\n\n".join(matches[:5])
         else:
             return f"❌ Sorry {first_name}, no movies found for: <b>{query}</b>"
-
     except Exception as e:
         return f"⚠️ Error while searching: {e}"
 
@@ -67,13 +67,21 @@ def send_message(chat_id, text):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
-    requests.post(TELEGRAM_API, json=payload)
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
 def delete_message(chat_id, message_id):
-    delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
     payload = {
         "chat_id": chat_id,
         "message_id": message_id
     }
-    requests.post(delete_url, json=payload)
+    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
 
+def warn_message(chat_id, user_id, first_name):
+    warning = f"⚠️ {first_name}, sending links is not allowed in this group. Please follow the rules."
+    payload = {
+        "chat_id": chat_id,
+        "text": warning,
+        "reply_to_message_id": user_id,
+        "disable_web_page_preview": True
+    }
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
