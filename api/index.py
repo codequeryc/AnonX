@@ -41,15 +41,13 @@ def webhook():
         return {"ok": True}
 
 if msg_text.lower() in ["/start", "/help", "help"]:
-    return send_message(chat_id,
-        f"👋 <b>Welcome, {user_name}!</b>\n\n"
-        "🎬 <b>Search for Movies & Series:</b>\n"
-        "🔎 Use the following formats:\n\n"
-        "🎥 <code>#movie Animal</code>\n"
-        "📺 <code>#tv Breaking Bad</code>\n"
-        "📽️ <code>#series Loki</code>\n\n"
-        "✨ I’ll find HD download links for you!"
-    )
+        return send_message(chat_id,
+            f"🎬 Welcome {user_name}!\n"
+            "Search using:\n"
+            "<code>#movie Animal</code>\n"
+            "<code>#tv Breaking Bad</code>\n"
+            "<code>#series Loki</code>"
+        )
 
 
     if msg_text.lower().startswith("#movie "):
