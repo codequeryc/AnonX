@@ -12,6 +12,7 @@ XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 movie_links = {}  # callback_id → {link, title}
 BASE_URL_CACHE = None
 
+
 def get_base_url():
     global BASE_URL_CACHE
     if BASE_URL_CACHE:
@@ -28,26 +29,43 @@ def get_base_url():
     }
 
     try:
+        # Step 1: Get original URL from Xata
         res = requests.post(xata_query_url, headers=headers, json=payload, timeout=10)
         res.raise_for_status()
         records = res.json().get("records", [])
         if not records:
+            print("❌ No domain record found.")
             return None
 
         original_url = records[0]["url"].rstrip("/")
-        final_url = requests.get(original_url, headers=HEADERS, allow_redirects=True, timeout=10).url.rstrip("/")
+        record_id = records[0]["id"]
+        print(f"🔍 Original URL from Xata: {original_url}")
 
+        # Step 2: Follow redirects to get final URL
+        try:
+            final_url = requests.get(original_url, headers=HEADERS, allow_redirects=True, timeout=10).url.rstrip("/")
+        except requests.RequestException as e:
+            print(f"⚠️ Redirect failed, using original: {e}")
+            final_url = original_url
+
+        print(f"🔁 Final URL after redirect: {final_url}")
+
+        # Step 3: Update Xata if final URL is different
         if final_url != original_url:
-            record_id = records[0]["id"]
             patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record_id}"
             patch_data = {"url": final_url}
-            requests.patch(patch_url, headers=headers, json=patch_data, timeout=10)
+            patch_res = requests.patch(patch_url, headers=headers, json=patch_data, timeout=10)
+
+            if patch_res.ok:
+                print(f"✅ URL updated in Xata: {original_url} ➜ {final_url}")
+            else:
+                print(f"❌ Failed to update URL in Xata: {patch_res.status_code} - {patch_res.text}")
 
         BASE_URL_CACHE = final_url
         return final_url
 
     except Exception as e:
-        print(f"❌ Failed to fetch/update BASE_URL from Xata: {e}")
+        print(f"❌ Exception in get_base_url: {e}")
         return None
 
 
@@ -116,6 +134,9 @@ def handle_search(chat_id, query, label):
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
     base_url = get_base_url()
+    if not base_url:
+        return send_message(chat_id, "❌ Base URL not found in database.")
+
     url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
     soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
 
