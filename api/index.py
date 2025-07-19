@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}  # Now stores links per chat_id
+movie_links = {}  # Stores links per user per button
 
 @app.route("/", methods=["GET"])
 def home():
@@ -17,11 +17,9 @@ def webhook():
     try:
         data = request.get_json(force=True)
 
-        # Callback button
         if "callback_query" in data:
             return handle_callback(data["callback_query"])
 
-        # New message
         msg = data.get("message", {})
         chat_id = msg.get("chat", {}).get("id")
         msg_text = msg.get("text", "").strip()
@@ -31,7 +29,6 @@ def webhook():
         if not chat_id or not msg_text:
             return {"ok": True}
 
-        # Block links
         if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
             warning = f"⚠️ {user_name}, sharing links is not allowed."
             warn_msg = send_message(chat_id, warning, reply_to=msg_id)
@@ -41,7 +38,6 @@ def webhook():
                 threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
             return {"ok": True}
 
-        # Start command
         if msg_text.lower() == "/start":
             welcome = (
                 f"🎬 Welcome {user_name}!\n"
@@ -53,7 +49,6 @@ def webhook():
             send_message(chat_id, welcome)
             return {"ok": True}
 
-        # Search commands
         if msg_text.lower().startswith("#movie "):
             return handle_search(chat_id, msg_text[7:], user_name, "Movie")
         if msg_text.lower().startswith("#tv "):
@@ -72,14 +67,12 @@ def handle_callback(query):
         chat_id = query["message"]["chat"]["id"]
         callback_data = query["data"]
 
-        # Get user-specific movie link
         link = movie_links.get(chat_id, {}).get(callback_data)
 
         if not link:
             send_message(chat_id, "⚠️ Link expired or not found.")
             return {"ok": True}
 
-        # Scrape movie page
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(link, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
@@ -164,17 +157,16 @@ def search_filmyfly(query, category, chat_id):
         res = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # Initialize or clear per-user movie link dictionary
         movie_links[chat_id] = {}
 
         results = []
-        for idx, item in enumerate(soup.select("div.A2")):
+        for item in soup.select("div.A2"):
             a_tag = item.find("a", href=True)
             b_tag = item.find("b")
             if a_tag and b_tag:
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
-                callback_id = f"movie_{idx}"
+                callback_id = f"movie_{abs(hash(title + link))}"  # unique per movie
                 movie_links[chat_id][callback_id] = link
                 results.append([{"text": title, "callback_data": callback_id}])
             if len(results) >= 10:
