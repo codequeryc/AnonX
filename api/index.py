@@ -7,8 +7,38 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-BASE_URL = "https://filmyfly.party"  # ✅ Added here
+XATA_API_KEY = os.environ.get("XATA_API_KEY")
+XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 movie_links = {}  # callback_id → {link, title}
+BASE_URL_CACHE = None
+
+
+def get_base_url():
+    global BASE_URL_CACHE
+    if BASE_URL_CACHE:
+        return BASE_URL_CACHE
+
+    url = f"{XATA_BASE_URL}/tables/domains/query"
+    headers = {
+        "Authorization": f"Bearer {XATA_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "filter": {"uid": "abc12"},
+        "columns": ["url"]
+    }
+
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=10)
+        res.raise_for_status()
+        records = res.json().get("records", [])
+        if records:
+            BASE_URL_CACHE = records[0]["url"].rstrip("/")
+            return BASE_URL_CACHE
+    except Exception as e:
+        print(f"❌ Failed to fetch BASE_URL from Xata: {e}")
+
+    return "https://filmyfly.party"
 
 
 @app.route("/", methods=["GET"])
@@ -64,7 +94,7 @@ def webhook():
 
 
 def send_help(chat_id, name):
-    return send_message(chat_id, 
+    return send_message(chat_id,
         f"👋 <b>Welcome, {name}!</b>\n\n"
         "🎬 <b>Search Movies & Series:</b>\n"
         "🎥 <code>#movie Animal</code>\n"
@@ -79,7 +109,8 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    url = f"{BASE_URL}/site-1.html?to-search={query.replace(' ', '+')}"
+    base_url = get_base_url()
+    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
     soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
 
     buttons = []
@@ -87,7 +118,7 @@ def handle_search(chat_id, query, label):
         a, b = item.find("a", href=True), item.find("b")
         if a and b:
             title = b.text.strip()
-            link = BASE_URL + a["href"]
+            link = base_url + a["href"]
             cid = f"movie_{abs(hash(title + link))}"
             movie_links[cid] = {"title": title, "link": link}
             buttons.append([{"text": title, "callback_data": cid}])
@@ -119,13 +150,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-    f"🎬 <b>{title}</b>\n"
-    f"━━━━━━━━━━━━━━━━━━━\n"
-    f"<b>📁 Size:</b> <code>{size}</code>\n"
-    f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-    f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-    f"━━━━━━━━━━━━━━━━━━━\n"
-    f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
+        f"🎬 <b>{title}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📁 Size:</b> <code>{size}</code>\n"
+        f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+        f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
