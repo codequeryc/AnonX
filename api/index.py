@@ -5,39 +5,15 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
-
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 movie_links = {}
 
-# ✅ Fetch domain URL from Xata by uid
-def get_filmyfly_url():
-    headers = {
-        "Authorization": f"Bearer {XATA_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    try:
-        res = requests.post(
-            f"{XATA_BASE_URL}/tables/domains/query",
-            headers=headers,
-            json={"filter": {"uid": "abc12"}},
-            timeout=10
-        )
-        if res.ok:
-            records = res.json().get("records", [])
-            if records:
-                return records[0].get("url")
-    except Exception as e:
-        print("❌ Xata Error:", e)
-    return None
-
+FILMYFLY_URL = "https://filmyfly.party"  # You can change to .durban or dynamic later
 
 @app.route("/", methods=["GET"])
 def home():
-    url = get_filmyfly_url()
-    return f"🤖 Movie Bot Running!<br>URL: {url or '❌ Not Found'}"
+    return f"🤖 Movie Bot Running!<br>URL: {FILMYFLY_URL}"
 
 
 @app.route("/", methods=["POST"])
@@ -48,8 +24,7 @@ def webhook():
         return handle_callback(data["callback_query"])
 
     msg = data.get("message", {})
-    chat = msg.get("chat", {})
-    chat_id = chat.get("id")
+    chat_id = msg.get("chat", {}).get("id")
     msg_text = msg.get("text", "").strip()
     msg_id = msg.get("message_id")
     user_name = msg.get("from", {}).get("first_name", "Friend")
@@ -84,7 +59,7 @@ def webhook():
 
 
 def send_help(chat_id, name):
-    return send_message(chat_id,
+    return send_message(chat_id, 
         f"👋 <b>Welcome, {name}!</b>\n\n"
         "🎬 <b>Search Movies & Series:</b>\n"
         "🎥 <code>#movie Animal</code>\n"
@@ -99,30 +74,32 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    base_url = url
-    if not base_url:
-        return send_message(chat_id, "❌ Source URL not found in database.")
+    search_url = f"{FILMYFLY_URL}/search/{query.replace(' ', '%20')}.html"
 
-    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
     try:
-        soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
-    except Exception:
-        return send_message(chat_id, "❌ Failed to fetch results.")
+        res = requests.get(search_url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+    except Exception as e:
+        print("❌ Search error:", e)
+        return send_message(chat_id, "❌ Failed to fetch search results.")
 
     buttons = []
-    for item in soup.select("div.A2"):
-        a, b = item.find("a", href=True), item.find("b")
-        if a and b:
-            title = b.text.strip()
-            link = base_url + a["href"]
-            cid = f"movie_{abs(hash(title + link))}"
-            movie_links[cid] = {"title": title, "link": link}
-            buttons.append([{"text": title, "callback_data": cid}])
+    for div in soup.find_all("div", class_="A2"):
+        a_tags = div.find_all("a", href=True)
+        if len(a_tags) >= 2:
+            title = a_tags[1].get_text(strip=True)
+            href = a_tags[1]["href"]
+            full_link = FILMYFLY_URL + href if href.startswith("/") else href
+            cid = f"movie_{abs(hash(title + full_link))}"
+            movie_links[cid] = {"title": title, "link": full_link}
+            buttons.append([{"text": title[:50], "callback_data": cid}])
         if len(buttons) >= 10:
             break
 
-    msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found for <b>{query}</b>."
-    return send_message(chat_id, msg, buttons=buttons)
+    if not buttons:
+        return send_message(chat_id, f"❌ No {label.lower()} found for <b>{query}</b>.")
+    
+    return send_message(chat_id, f"🔍 {label} results for <b>{query}</b>:", buttons=buttons)
 
 
 def handle_callback(query):
@@ -134,9 +111,12 @@ def handle_callback(query):
         return send_message(chat_id, "⚠️ Link expired or not found.")
 
     link, title = movie["link"], movie["title"]
+
     try:
-        soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
-    except Exception:
+        res = requests.get(link, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+    except Exception as e:
+        print("❌ Callback error:", e)
         return send_message(chat_id, "❌ Failed to load movie details.")
 
     poster = soup.select_one("div.movie-thumb img")
