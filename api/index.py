@@ -20,10 +20,10 @@ def start_cleaner():
         while True:
             now = int(time.time())
             for item in tracked_messages[:]:
-                if now - item["timestamp"] > 30:
+                if now - item["timestamp"] > 10:
                     delete_message(item["chat_id"], item["message_id"])
                     tracked_messages.remove(item)
-            time.sleep(5)  # check every 5 seconds
+            time.sleep(1)  # check every 5 seconds
     threading.Thread(target=cleaner, daemon=True).start()
 
 start_cleaner()
