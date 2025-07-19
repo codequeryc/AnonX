@@ -2,10 +2,11 @@ from flask import Flask, request
 import requests
 import feedparser
 import os
+import threading
+import time
 
 app = Flask(__name__)
 
-# Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BLOG_URL = os.environ.get("BLOG_URL")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -27,12 +28,12 @@ def webhook():
     if not chat_id or not text:
         return {"ok": True}
 
-    # 🔗 If message contains link, reply with warning (don't delete)
+    # 🔗 If message contains a link
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
-        send_warning_reply(chat_id, message_id, first_name)
+        threading.Thread(target=warn_and_delete_user_message, args=(chat_id, message_id, first_name)).start()
         return {"ok": True}
 
-    # 🤖 Commands or search
+    # 🤖 Handle /start and movie search
     if text.lower() == "/start":
         reply = f"🎬 Welcome {first_name}! Send any movie name to search."
     else:
@@ -40,6 +41,21 @@ def webhook():
 
     send_message(chat_id, reply)
     return {"ok": True}
+
+def warn_and_delete_user_message(chat_id, user_message_id, first_name):
+    # Step 1: Send a reply warning
+    warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
+    payload = {
+        "chat_id": chat_id,
+        "text": warning,
+        "reply_to_message_id": user_message_id,
+        "disable_web_page_preview": True
+    }
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+
+    # Step 2: Wait for a short moment before deleting the user message
+    time.sleep(2)
+    delete_message(chat_id, user_message_id)
 
 def search_movie(query, first_name):
     try:
@@ -67,12 +83,9 @@ def send_message(chat_id, text):
     }
     requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
-def send_warning_reply(chat_id, message_id, first_name):
-    warning = f"⚠️ {first_name}, sharing links is not allowed in this group. Please follow the rules."
+def delete_message(chat_id, message_id):
     payload = {
         "chat_id": chat_id,
-        "text": warning,
-        "reply_to_message_id": message_id,
-        "disable_web_page_preview": True
+        "message_id": message_id
     }
-    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
