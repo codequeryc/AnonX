@@ -1,158 +1,77 @@
 from flask import Flask, request
-import requests
 import os
-import threading
-import logging
-from bs4 import BeautifulSoup
+import requests
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
-# 🔐 Telegram Bot Token (Set this as environment variable or replace directly)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-@app.route("/", methods=["GET"])
-def home():
-    return "🤖 Movie Bot Running!"
-
-@app.route("/", methods=["POST"])
-def webhook():
-    data = request.get_json(force=True)
-    logging.debug(f"Received data: {data}")
-
-    # ✅ Handle Callback Query
-    if "callback_query" in data:
-        query = data["callback_query"]
-        chat_id = query["message"]["chat"]["id"]
-        msg_id = query["message"]["message_id"]
-        link_data = query["data"]
-
-        if link_data.startswith("copylink:"):
-            actual_link = link_data[len("copylink:"):]
-            send_message(chat_id, f"🔗 Copy this link:\n<code>{actual_link}</code>", reply_to=msg_id)
-        return {"ok": True}
-
-    # ✅ Handle User Message
-    msg = data.get("message", {})
-    chat_id = msg.get("chat", {}).get("id")
-    user_text = msg.get("text", "").strip()
-    user_name = msg.get("from", {}).get("first_name", "Friend")
-    msg_id = msg.get("message_id")
-
-    logging.debug(f"User Message: {user_text}")
-
-    if not chat_id or not user_text:
-        return {"ok": True}
-
-    # 🚫 Block unwanted links
-    if any(link in user_text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
-        warning = f"⚠️ {user_name}, sharing links is not allowed."
-        warn_msg = send_message(chat_id, warning, reply_to=msg_id)
-        delete_message(chat_id, msg_id)
-
-        if warn_msg:
-            warn_id = warn_msg.get("result", {}).get("message_id")
-            threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
-        return {"ok": True}
-
-    # 👋 Start Command
-    if user_text.lower() == "/start":
-        welcome = (
-            f"🎬 Welcome {user_name}!\n"
-            "Search with:\n"
-            "<code>#movie Animal</code>\n"
-            "<code>#tv Breaking Bad</code>\n"
-            "<code>#series Loki</code>"
-        )
-        send_message(chat_id, welcome)
-        return {"ok": True}
-
-    # 🔍 Handle Search Commands
-    if user_text.lower().startswith("#movie "):
-        return handle_search(chat_id, user_text[7:], user_name, "Movie")
-
-    if user_text.lower().startswith("#tv "):
-        return handle_search(chat_id, user_text[4:], user_name, "TV Show")
-
-    if user_text.lower().startswith("#series "):
-        return handle_search(chat_id, user_text[8:], user_name, "Series")
-
-    return {"ok": True}
-
-# 🔍 Search Handler
-def handle_search(chat_id, query, user_name, category):
-    query = query.strip()
-    logging.debug(f"Searching for: {query} ({category})")
-
-    if not query:
-        send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
-        return {"ok": True}
-
-    text, buttons = search_filmyfly(query, user_name, category)
-    send_message(chat_id, text, buttons=buttons)
-    return {"ok": True}
-
-# ✅ Send Message
+# Util: Send message
 def send_message(chat_id, text, reply_to=None, buttons=None):
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
+        "parse_mode": "HTML"
     }
     if reply_to:
         payload["reply_to_message_id"] = reply_to
     if buttons:
-        payload["reply_markup"] = {"inline_keyboard": buttons}
+        payload["reply_markup"] = {
+            "inline_keyboard": buttons
+        }
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
-    res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
-    if res.ok:
-        return res.json()
-    else:
-        logging.error(f"Failed to send message: {res.text}")
-        return None
+# Fake movie search function (replace this with real scraping/search)
+def search_movie(query):
+    results = []
+    for i in range(3):
+        title = f"{query} Result {i+1}"
+        link = f"https://example.com/{query.lower()}-{i+1}"
+        results.append([{
+            "text": title,
+            "callback_data": f"copylink:{link}"
+        }])
+    return results
 
-# ✅ Delete Message
-def delete_message(chat_id, message_id):
-    res = requests.post(f"{TELEGRAM_API}/deleteMessage", json={
-        "chat_id": chat_id,
-        "message_id": message_id
-    })
-    if not res.ok:
-        logging.error(f"Failed to delete message: {res.text}")
+# Main webhook
+@app.route("/", methods=["POST"])
+def webhook():
+    data = request.get_json()
 
-# 🌐 Scrape Movie Links from filmyfly.party
-def search_filmyfly(query, user_name, category):
-    try:
-        url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, "html.parser")
+    # Handle callback button click
+    if "callback_query" in data:
+        query = data["callback_query"]
+        chat_id = query["message"]["chat"]["id"]
+        msg_id = query["message"]["message_id"]
+        cb_data = query["data"]
 
-        results = []
-        for item in soup.select("div.A2"):
-            a_tag = item.find("a", href=True)
-            b_tag = item.find("b")
-            if a_tag and b_tag:
-                title = b_tag.text.strip()
-                link = "https://filmyfly.party" + a_tag["href"]
+        if cb_data.startswith("copylink:"):
+            link = cb_data.replace("copylink:", "")
+            send_message(chat_id, f"🔗 Here is your link:\n<code>{link}</code>", reply_to=msg_id)
+        return {"ok": True}
 
-                # Use callback_data instead of URL
-                results.append([{
-                    "text": title,
-                    "callback_data": f"copylink:{link}"
-                }])
+    # Handle normal messages
+    message = data.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    text = message.get("text", "")
 
-            if len(results) >= 5:
-                break
-
-        if results:
-            return f"🔍 {category} results for <b>{query}</b>:", results
+    if text.lower() == "/start":
+        send_message(chat_id, "👋 Welcome! Send me a hashtag like #movie Animal to search.")
+    elif "#movie" in text.lower():
+        movie_name = text.split("#movie", 1)[1].strip()
+        if movie_name:
+            buttons = search_movie(movie_name)
+            send_message(chat_id, f"🎬 Results for <b>{movie_name}</b>:", buttons=buttons)
         else:
-            return f"❌ Sorry {user_name}, no {category.lower()} found for <b>{query}</b>.", []
+            send_message(chat_id, "❌ Please provide a movie name after #movie.")
+    else:
+        send_message(chat_id, "🤖 Unknown command. Try /start or #movie Pushpa.")
 
-    except Exception as e:
-        logging.exception("Error while scraping")
-        return f"⚠️ Error: {e}", []
+    return {"ok": True}
+
+# Home route
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 Telegram Movie Bot Running!"
 
