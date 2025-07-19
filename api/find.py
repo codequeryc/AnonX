@@ -5,22 +5,20 @@ import os
 app = Flask(__name__)
 BLOG_URL = os.environ.get("BLOG_URL")
 
-@app.route("/api/find", methods=["POST"])
-def find_movie():
-    data = request.get_json()
-    query = data.get("query", "").lower()
+@app.route("/api/find")
+def find_movies():
+    query = request.args.get("q", "")
+    if not query or not BLOG_URL:
+        return jsonify({"results": []})
 
-    if not query:
-        return jsonify({"success": False, "error": "No query provided"})
-
-    feed = feedparser.parse(BLOG_URL)
-    results = []
-
-    for entry in feed.entries:
-        if query in entry.title.lower():
+    try:
+        feed = feedparser.parse(f"{BLOG_URL}/feeds/posts/default?q={query}&alt=rss")
+        results = []
+        for entry in feed.entries[:5]:
             results.append({
                 "title": entry.title,
-                "url": entry.link
+                "link": entry.link
             })
-
-    return jsonify({"success": True, "movies": results})
+        return jsonify({"results": results})
+    except Exception as e:
+        return jsonify({"error": str(e), "results": []})
