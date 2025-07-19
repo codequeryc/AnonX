@@ -1,13 +1,12 @@
 from flask import Flask, request
 import requests
-from fetch import search_blogger  # Import from fetch.py
+from fetch_blog import search_blogger
+import os
 
 app = Flask(__name__)
 
-BOT_TOKEN = "your_bot_token"  # Already set on Vercel
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-BLOG_URL = "https://yourblog.blogspot.com"  # Replace with your Blogger blog URL
 
 @app.route("/", methods=["GET"])
 def home():
@@ -21,12 +20,14 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "").strip()
 
-        reply = None
-
         if text.lower().startswith("#request"):
             movie = text[8:].strip()
             if movie:
-                reply = search_blogger(BLOG_URL, movie)
+                results = search_blogger(movie)
+                if results:
+                    reply = "🎬 *Results:*\n\n" + "\n\n".join(results)
+                else:
+                    reply = f"❌ No results found for *{movie}*"
             else:
                 reply = "⚠️ Please provide a movie name after #request"
 
@@ -35,9 +36,10 @@ def webhook():
                 "📌 *Movie Request Bot Help*\n\n"
                 "🎬 To request a movie, type:\n"
                 "#request Movie Name\n\n"
-                "Example:\n`#request Inception`\n\n"
-                "ℹ️ You can also use `/help` to view this message."
+                "Example:\n`#request Inception`"
             )
+        else:
+            reply = None
 
         if reply:
             requests.post(TELEGRAM_API, json={
