@@ -1,5 +1,5 @@
 from flask import Flask, request
-import requests, os, random, json
+import requests, os, random, json, threading, base64
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -22,11 +22,14 @@ blogger_cache = {
     'expiry': timedelta(hours=1)
 }
 
+# Base64 encode (btoa equivalent)
+def btoa(string):
+    return base64.b64encode(string.encode()).decode()
+
 def get_random_blogger_post():
     global blogger_cache
     if not BLOG_URL:
         return None
-
     try:
         if (
             blogger_cache['last_fetched'] and
@@ -51,7 +54,6 @@ def get_random_blogger_post():
         blogger_cache['last_fetched'] = datetime.now()
 
         return random.choice(posts) if posts else None
-
     except Exception as e:
         print(f"Error fetching Blogger JSON feed: {e}")
         return None
@@ -190,7 +192,11 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     blog_post = get_random_blogger_post()
-    final_url = f"{blog_post}?url={quote(download_link)}" if blog_post else download_link
+    if blog_post:
+        encoded = btoa(download_link)
+        final_url = f"{blog_post}?url={encoded}"
+    else:
+        final_url = download_link
 
     caption = (
         f"🎬 <b>{title}</b>\n"
