@@ -35,7 +35,7 @@ def webhook():
 
 def search_movie(query):
     try:
-        find_url = "https://{your-vercel-domain}.vercel.app/api/find"  # update this later
+        find_url = os.environ.get("VERCEL_URL", "https://your-fallback.vercel.app") + "/api/find"
         response = requests.post(find_url, json={"query": query})
         result = response.json()
 
