@@ -1,40 +1,26 @@
 from flask import Flask, request, jsonify
-import requests
+import feedparser
 import os
 
 app = Flask(__name__)
+BLOG_URL = os.environ.get("BLOG_URL")
 
-@app.route("/find", methods=["POST"])
+@app.route("/api/find", methods=["POST"])
 def find_movie():
     data = request.get_json()
     query = data.get("query", "").lower()
-    
-    blog_url = os.environ.get("BLOG_URL")
-    if not blog_url:
-        return jsonify({"found": False, "error": "BLOG_URL not set"})
 
-    feed_url = f"{blog_url}/feeds/posts/default?alt=json"
-    try:
-        res = requests.get(feed_url)
-        res.raise_for_status()
-        feed = res.json()
-        
-        entries = feed.get("feed", {}).get("entry", [])
+    if not query:
+        return jsonify({"success": False, "error": "No query provided"})
 
-        for entry in entries:
-            title = entry.get("title", {}).get("$t", "").lower()
-            link = ""
-            for l in entry.get("link", []):
-                if l.get("rel") == "alternate":
-                    link = l.get("href")
-            if query in title:
-                return jsonify({
-                    "found": True,
-                    "title": title,
-                    "link": link
-                })
+    feed = feedparser.parse(BLOG_URL)
+    results = []
 
-        return jsonify({"found": False})
-    
-    except Exception as e:
-        return jsonify({"found": False, "error": str(e)})
+    for entry in feed.entries:
+        if query in entry.title.lower():
+            results.append({
+                "title": entry.title,
+                "url": entry.link
+            })
+
+    return jsonify({"success": True, "movies": results})
