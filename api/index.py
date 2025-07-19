@@ -49,7 +49,7 @@ def webhook():
             "🎥 <code>#movie Animal</code>\n"
             "📺 <code>#tv Breaking Bad</code>\n"
             "📽️ <code>#series Loki</code>\n\n"
-            "✨ I’ll fetch HD download links for you!"
+            "✨ I’ll find HD download links for you!"
         )
 
     # 🔍 Search
