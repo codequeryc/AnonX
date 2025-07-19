@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}
+movie_links = {}  # Now stores links per chat_id
 
 @app.route("/", methods=["GET"])
 def home():
@@ -72,50 +72,46 @@ def handle_callback(query):
         chat_id = query["message"]["chat"]["id"]
         callback_data = query["data"]
 
-        if callback_data.startswith("movie_"):
-            link = movie_links.get(callback_data)
+        # Get user-specific movie link
+        link = movie_links.get(chat_id, {}).get(callback_data)
 
-            if not link:
-                send_message(chat_id, "⚠️ Link expired or not found")
-                return {"ok": True}
+        if not link:
+            send_message(chat_id, "⚠️ Link expired or not found.")
+            return {"ok": True}
 
-            # Scrape movie page
-            headers = {"User-Agent": "Mozilla/5.0"}
-            res = requests.get(link, headers=headers, timeout=10)
-            soup = BeautifulSoup(res.text, "html.parser")
+        # Scrape movie page
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(link, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
 
-            # Extract poster and screenshot
-            poster_tag = soup.select_one("div.movie-thumb img")
-            ss_tag = soup.select_one("div.ss img")
-            poster_url = poster_tag["src"] if poster_tag else None
-            ss_url = ss_tag["src"] if ss_tag else None
+        poster_tag = soup.select_one("div.movie-thumb img")
+        ss_tag = soup.select_one("div.ss img")
+        poster_url = poster_tag["src"] if poster_tag else None
+        ss_url = ss_tag["src"] if ss_tag else None
 
-            media = []
+        media = []
 
-            # Add poster (with caption)
-            if poster_url:
-                media.append({
-                    "type": "photo",
-                    "media": poster_url,
-                    "caption": f"<b>🎬 Download Movie</b>:\n<a href='{link}'>{link}</a>",
-                    "parse_mode": "HTML"
-                })
+        if poster_url:
+            media.append({
+                "type": "photo",
+                "media": poster_url,
+                "caption": f"<b>🎬 Download Movie</b>:\n<a href='{link}'>{link}</a>",
+                "parse_mode": "HTML"
+            })
 
-            # Add screenshot (no caption)
-            if ss_url:
-                media.append({
-                    "type": "photo",
-                    "media": ss_url
-                })
+        if ss_url:
+            media.append({
+                "type": "photo",
+                "media": ss_url
+            })
 
-            # Send media group
-            if media:
-                requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={
-                    "chat_id": chat_id,
-                    "media": media
-                }, timeout=10)
-            else:
-                send_message(chat_id, f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>")
+        if media:
+            requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={
+                "chat_id": chat_id,
+                "media": media
+            }, timeout=10)
+        else:
+            send_message(chat_id, f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>")
 
         return {"ok": True}
     except Exception as e:
@@ -128,7 +124,7 @@ def handle_search(chat_id, query, user_name, category):
     query = query.strip()
     if not query:
         return send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
-    text, buttons = search_filmyfly(query, category)
+    text, buttons = search_filmyfly(query, category, chat_id)
     return send_message(chat_id, text, buttons=buttons)
 
 
@@ -161,14 +157,15 @@ def delete_message(chat_id, message_id):
         print(f"[Delete Message Error] {e}")
 
 
-def search_filmyfly(query, category):
-    global movie_links
-    movie_links.clear()
+def search_filmyfly(query, category, chat_id):
     try:
         url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
+
+        # Initialize or clear per-user movie link dictionary
+        movie_links[chat_id] = {}
 
         results = []
         for idx, item in enumerate(soup.select("div.A2")):
@@ -178,7 +175,7 @@ def search_filmyfly(query, category):
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
                 callback_id = f"movie_{idx}"
-                movie_links[callback_id] = link
+                movie_links[chat_id][callback_id] = link
                 results.append([{"text": title, "callback_data": callback_id}])
             if len(results) >= 10:
                 break
