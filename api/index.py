@@ -17,11 +17,9 @@ def webhook():
     try:
         data = request.get_json(force=True)
 
-        # Callback button
         if "callback_query" in data:
             return handle_callback(data["callback_query"])
 
-        # New message
         msg = data.get("message", {})
         chat_id = msg.get("chat", {}).get("id")
         msg_text = msg.get("text", "").strip()
@@ -31,7 +29,6 @@ def webhook():
         if not chat_id or not msg_text:
             return {"ok": True}
 
-        # Block links
         if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
             warning = f"⚠️ {user_name}, sharing links is not allowed."
             warn_msg = send_message(chat_id, warning, reply_to=msg_id)
@@ -41,7 +38,6 @@ def webhook():
                 threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
             return {"ok": True}
 
-        # Start
         if msg_text.lower() == "/start":
             welcome = (
                 f"🎬 Welcome {user_name}!\n"
@@ -53,7 +49,6 @@ def webhook():
             send_message(chat_id, welcome)
             return {"ok": True}
 
-        # Search commands
         if msg_text.lower().startswith("#movie "):
             return handle_search(chat_id, msg_text[7:], user_name, "Movie")
         if msg_text.lower().startswith("#tv "):
@@ -65,6 +60,7 @@ def webhook():
     except Exception as e:
         print(f"[Webhook Error] {e}")
         return {"ok": False}
+
 
 def handle_callback(query):
     try:
@@ -79,31 +75,46 @@ def handle_callback(query):
                 send_message(chat_id, "⚠️ Link expired or not found")
                 return {"ok": True}
 
-            # Scrape movie page
+            # Scrape the page
             headers = {"User-Agent": "Mozilla/5.0"}
             res = requests.get(link, headers=headers, timeout=10)
             soup = BeautifulSoup(res.text, "html.parser")
 
-            # Find poster image
+            # Poster image
             poster_tag = soup.select_one("div.movie-thumb img")
             poster_url = poster_tag["src"] if poster_tag else None
 
-            # Send poster + link
+            # Screenshot image
+            screenshot_tag = soup.select_one("div.ss img")
+            screenshot_url = screenshot_tag["src"] if screenshot_tag else None
+
+            # Send poster
             if poster_url:
-                response = requests.post(f"{TELEGRAM_API}/sendPhoto", json={
+                requests.post(f"{TELEGRAM_API}/sendPhoto", json={
                     "chat_id": chat_id,
                     "photo": poster_url,
                     "caption": f"🎬 <b>Download Link</b>:\n<a href='{link}'>{link}</a>",
                     "parse_mode": "HTML"
-                }, timeout=10)
+                })
+
             else:
                 send_message(chat_id, f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>")
+
+            # Send screenshot
+            if screenshot_url:
+                requests.post(f"{TELEGRAM_API}/sendPhoto", json={
+                    "chat_id": chat_id,
+                    "photo": screenshot_url,
+                    "caption": "📸 Screenshot",
+                    "parse_mode": "HTML"
+                })
 
         return {"ok": True}
     except Exception as e:
         print(f"[Callback Error] {e}")
-        send_message(chat_id, "⚠️ Error fetching movie poster.")
+        send_message(chat_id, "⚠️ Error fetching movie images.")
         return {"ok": False}
+
 
 def handle_search(chat_id, query, user_name, category):
     query = query.strip()
@@ -111,6 +122,7 @@ def handle_search(chat_id, query, user_name, category):
         return send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
     text, buttons = search_filmyfly(query, category)
     return send_message(chat_id, text, buttons=buttons)
+
 
 def send_message(chat_id, text, reply_to=None, buttons=None):
     try:
@@ -130,6 +142,7 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
         print(f"[Send Message Error] {e}")
         return None
 
+
 def delete_message(chat_id, message_id):
     try:
         requests.post(f"{TELEGRAM_API}/deleteMessage", json={
@@ -138,6 +151,7 @@ def delete_message(chat_id, message_id):
         }, timeout=5)
     except Exception as e:
         print(f"[Delete Message Error] {e}")
+
 
 def search_filmyfly(query, category):
     global movie_links
@@ -167,6 +181,7 @@ def search_filmyfly(query, category):
     except Exception as e:
         print(f"[Search Error] {e}")
         return f"⚠️ Error searching for {category.lower()}. Try again later.", []
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
