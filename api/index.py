@@ -1,14 +1,12 @@
 from flask import Flask, request
-import requests
-import os
+import requests, os, threading
 from bs4 import BeautifulSoup
-import threading
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Set this in your environment
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-movie_links = {}  # callback_data -> actual movie link (GLOBAL STORE)
+movie_links = {}  # ✅ Global callback_id → {link, title}
 
 @app.route("/", methods=["GET"])
 def home():
@@ -16,63 +14,143 @@ def home():
 
 @app.route("/", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
-    message = data.get("message")
-    callback = data.get("callback_query")
+    try:
+        data = request.get_json(force=True)
 
-    if message:
-        chat_id = message["chat"]["id"]
-        text = message.get("text", "")
+        if "callback_query" in data:
+            return handle_callback(data["callback_query"])
 
-        if text.startswith("#movie"):
-            query = text.replace("#movie", "").strip()
-            threading.Thread(target=handle_search, args=(chat_id, query, "Movie")).start()
-        elif text.startswith("#series"):
-            query = text.replace("#series", "").strip()
-            threading.Thread(target=handle_search, args=(chat_id, query, "Series")).start()
+        msg = data.get("message", {})
+        chat_id = msg.get("chat", {}).get("id")
+        msg_text = msg.get("text", "").strip()
+        msg_id = msg.get("message_id")
+        user_name = msg.get("from", {}).get("first_name", "Friend")
+
+        if not chat_id or not msg_text:
+            return {"ok": True}
+
+        if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
+            warning = f"⚠️ {user_name}, sharing links is not allowed."
+            warn_msg = send_message(chat_id, warning, reply_to=msg_id)
+            delete_message(chat_id, msg_id)
+            if warn_msg:
+                warn_id = warn_msg.get("result", {}).get("message_id")
+                threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
+            return {"ok": True}
+
+        if msg_text.lower() == "/start":
+            welcome = (
+                f"🎬 Welcome {user_name}!\n"
+                "Search with:\n"
+                "<code>#movie Animal</code>\n"
+                "<code>#tv Breaking Bad</code>\n"
+                "<code>#series Loki</code>"
+            )
+            send_message(chat_id, welcome)
+            return {"ok": True}
+
+        if msg_text.lower().startswith("#movie "):
+            return handle_search(chat_id, msg_text[7:], user_name, "Movie")
+        if msg_text.lower().startswith("#tv "):
+            return handle_search(chat_id, msg_text[4:], user_name, "TV Show")
+        if msg_text.lower().startswith("#series "):
+            return handle_search(chat_id, msg_text[8:], user_name, "Series")
+
+        return {"ok": True}
+    except Exception as e:
+        print(f"[Webhook Error] {e}")
+        return {"ok": False}
+
+
+def handle_callback(query):
+    try:
+        chat_id = query["message"]["chat"]["id"]
+        callback_data = query["data"]
+
+        movie_data = movie_links.get(callback_data)
+        if not movie_data:
+            send_message(chat_id, "⚠️ Link expired or not found.")
+            return {"ok": True}
+
+        link = movie_data["link"]
+        title = movie_data["title"]
+
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(link, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        poster_tag = soup.select_one("div.movie-thumb img")
+        ss_tag = soup.select_one("div.ss img")
+        poster_url = poster_tag["src"] if poster_tag else None
+        ss_url = ss_tag["src"] if ss_tag else None
+
+        media = []
+
+        if poster_url:
+            media.append({
+                "type": "photo",
+                "media": poster_url,
+                "caption": f"<b>🎬 {title}</b>\n<a href='{link}'>📥 Download</a>",
+                "parse_mode": "HTML"
+            })
+
+        if ss_url:
+            media.append({
+                "type": "photo",
+                "media": ss_url
+            })
+
+        if media:
+            requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={
+                "chat_id": chat_id,
+                "media": media
+            }, timeout=10)
         else:
-            send_message(chat_id, "❓ Send query using #movie or #series")
+            send_message(chat_id, f"📥 <b>Download Link</b>:\n<a href='{link}'>{link}</a>")
 
-    elif callback:
-        chat_id = callback["message"]["chat"]["id"]
-        callback_id = callback["data"]
-        message_id = callback["message"]["message_id"]
+        return {"ok": True}
+    except Exception as e:
+        print(f"[Callback Error] {e}")
+        send_message(chat_id, "⚠️ Error fetching movie poster or screenshot.")
+        return {"ok": False}
 
-        link = movie_links.get(callback_id)
-        if link:
-            preview = scrape_preview(link)
-            edit_message(chat_id, message_id, preview)
-        else:
-            edit_message(chat_id, message_id, "⚠️ Link expired or not found.")
 
-    return "OK", 200
-
-def handle_search(chat_id, query, category):
+def handle_search(chat_id, query, user_name, category):
+    query = query.strip()
+    if not query:
+        return send_message(chat_id, f"❌ Please provide a {category.lower()} name.")
     text, buttons = search_filmyfly(query, category)
-    send_inline_keyboard(chat_id, text, buttons)
+    return send_message(chat_id, text, buttons=buttons)
 
-def send_message(chat_id, text):
-    requests.post(f"{TELEGRAM_API}/sendMessage", json={
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    })
 
-def send_inline_keyboard(chat_id, text, buttons):
-    requests.post(f"{TELEGRAM_API}/sendMessage", json={
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": {"inline_keyboard": buttons}
-    })
+def send_message(chat_id, text, reply_to=None, buttons=None):
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }
+        if reply_to:
+            payload["reply_to_message_id"] = reply_to
+        if buttons:
+            payload["reply_markup"] = {"inline_keyboard": buttons}
+        res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
+        return res.json() if res.ok else None
+    except Exception as e:
+        print(f"[Send Message Error] {e}")
+        return None
 
-def edit_message(chat_id, message_id, text):
-    requests.post(f"{TELEGRAM_API}/editMessageText", json={
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": "HTML"
-    })
+
+def delete_message(chat_id, message_id):
+    try:
+        requests.post(f"{TELEGRAM_API}/deleteMessage", json={
+            "chat_id": chat_id,
+            "message_id": message_id
+        }, timeout=5)
+    except Exception as e:
+        print(f"[Delete Message Error] {e}")
+
 
 def search_filmyfly(query, category):
     try:
@@ -89,7 +167,7 @@ def search_filmyfly(query, category):
                 title = b_tag.text.strip()
                 link = "https://filmyfly.party" + a_tag["href"]
                 callback_id = f"movie_{abs(hash(title + link))}"
-                movie_links[callback_id] = link
+                movie_links[callback_id] = {"link": link, "title": title}
                 results.append([{"text": title, "callback_data": callback_id}])
             if len(results) >= 10:
                 break
@@ -101,21 +179,6 @@ def search_filmyfly(query, category):
         print(f"[Search Error] {e}")
         return f"⚠️ Error searching for {category.lower()}. Try again later.", []
 
-def scrape_preview(link):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(link, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        title = soup.title.text.strip() if soup.title else "Preview"
-        img = soup.select_one("div.A1 img")
-        img_url = img["src"] if img else ""
-        if img_url:
-            return f"<b>{title}</b>\n<a href='{img_url}'>📥 Download</a>"
-        else:
-            return f"<b>{title}</b>\n🔗 <a href='{link}'>Visit Page</a>"
-    except Exception as e:
-        print(f"[Preview Error] {e}")
-        return "⚠️ Failed to load preview."
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
