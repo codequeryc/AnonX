@@ -1,8 +1,8 @@
 from flask import Flask, request
 import requests
-import feedparser
 import os
 import threading
+from bs4 import BeautifulSoup  # This is required to parse HTML
 
 app = Flask(__name__)
 
@@ -31,7 +31,7 @@ def webhook():
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
         warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
 
-        # Send warning message
+        # Send warning
         resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
             "chat_id": chat_id,
             "text": warning,
@@ -40,10 +40,10 @@ def webhook():
             "reply_to_message_id": message_id
         })
 
-        # Delete the user's message
+        # Delete original message
         delete_message(chat_id, message_id)
 
-        # Delete the warning after 20 seconds (non-blocking)
+        # Delete warning after 10 sec
         if resp.status_code == 200:
             result = resp.json()
             warning_msg_id = result.get("result", {}).get("message_id")
@@ -52,7 +52,7 @@ def webhook():
 
         return {"ok": True}
 
-    # 🤖 Handle /start command
+    # 🤖 /start command
     if text.lower() == "/start":
         reply = (
             f"🎬 Welcome {first_name}!\n"
@@ -64,7 +64,7 @@ def webhook():
         send_message(chat_id, reply)
         return {"ok": True}
 
-    # 🔍 Handle search commands
+    # 🔍 Search commands
     lower_text = text.lower()
 
     if lower_text.startswith("#movie "):
@@ -117,18 +117,31 @@ def delete_message(chat_id, message_id):
 
 def search_movie(query, first_name, category="Movie"):
     try:
-        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=rss"
-        feed = feedparser.parse(feed_url)
-        matches = []
+        search_url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        response = requests.get(search_url, headers=headers)
+        response.raise_for_status()
 
-        for entry in feed.entries:
-            title = entry.title.lower()
-            if query.lower() in title:
-                matches.append(f"🎬 {entry.title}\n🔗 {entry.link}")
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        if matches:
-            return "\n\n".join(matches[:5])
+        results = []
+        for item in soup.select("div.A2"):
+            link_tag = item.find("a", href=True)
+            title_tag = item.find("b")
+            if link_tag and title_tag:
+                url = "https://filmyfly.party" + link_tag['href']
+                title = title_tag.get_text(strip=True)
+                results.append(f"🎬 {title}\n🔗 {url}")
+            if len(results) >= 5:
+                break
+
+        if results:
+            return "\n\n".join(results)
         else:
             return f"❌ Sorry {first_name}, no {category.lower()} found for: <b>{query}</b>"
+
     except Exception as e:
         return f"⚠️ Error while searching: {e}"
