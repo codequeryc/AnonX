@@ -40,8 +40,7 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
         return {"ok": True}
 
-    # 🎬 Start or Help
-    if msg_text.lower() in ["/start", "/help", "help"]:
+    if msg_text.lower() == "/start":
         return send_message(chat_id,
             f"👋 <b>Welcome, {user_name}!</b>\n\n"
             "🎬 <b>Search for Movies & Series:</b>\n"
@@ -49,10 +48,9 @@ def webhook():
             "🎥 <code>#movie Animal</code>\n"
             "📺 <code>#tv Breaking Bad</code>\n"
             "📽️ <code>#series Loki</code>\n\n"
-            "✨ I’ll find HD download links for you!"
+            "✨ I’ll fetch HD download links for you!"
         )
 
-    # 🔍 Search
     if msg_text.lower().startswith("#movie "):
         return handle_search(chat_id, msg_text[7:], "Movie")
     if msg_text.lower().startswith("#tv "):
@@ -76,13 +74,13 @@ def handle_callback(query):
     soup = BeautifulSoup(requests.get(link, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).text, "html.parser")
 
     # 🎞️ Images
-    poster_url = soup.select_one("div.movie-thumb img")
-    poster_url = poster_url["src"] if poster_url else None
+    poster_tag = soup.select_one("div.movie-thumb img")
+    poster_url = poster_tag["src"] if poster_tag else None
 
-    ss_url = soup.select_one("div.ss img")
-    ss_url = ss_url["src"] if ss_url else None
+    ss_tag = soup.select_one("div.ss img")
+    ss_url = ss_tag["src"] if ss_tag else None
 
-    # 📂 Info extract
+    # 📂 Extract Info
     def get_value(label):
         for block in soup.select("div.fname"):
             if block.contents and label.lower() in block.contents[0].lower():
@@ -95,27 +93,27 @@ def handle_callback(query):
 
     # 🔗 Extract Download Link
     download_link = None
-    dl_btn = soup.select_one("div.dlbtn a")
-    if dl_btn and dl_btn.get("href"):
-        download_link = dl_btn["href"]
+    dl_a = soup.select_one("div.dlbtn a")
+    if dl_a and dl_a.get("href"):
+        download_link = dl_a["href"]
     else:
-        alt_dl = soup.select_one("a > div.dll")
-        if alt_dl and alt_dl.parent.get("href"):
-            download_link = alt_dl.parent["href"]
+        dll = soup.select_one("a > div.dll")
+        if dll and dll.parent.get("href"):
+            download_link = dll.parent["href"]
 
-    # 📄 Caption
     caption = (
         f"<b>🎬 {title}</b>\n\n"
         f"<b>📁 Size:</b> {size}\n"
         f"<b>🈯 Language:</b> {language}\n"
         f"<b>🎭 Genre:</b> {genre}\n\n"
     )
+
     if download_link:
         caption += f"<a href='{download_link}'>📥 Download</a>"
     else:
         caption += f"<a href='{link}'>📥 Original Page</a>"
 
-    # 🖼️ Media Group
+    # 📸 Media Group
     media = []
     if poster_url:
         media.append({
@@ -163,7 +161,7 @@ def handle_search(chat_id, query, category):
             break
 
     if buttons:
-        return send_message(chat_id, f"🔍 <b>{category} results for</b> <i>{query}</i>:", buttons=buttons)
+        return send_message(chat_id, f"🔍 {category} results for <b>{query}</b>:", buttons=buttons)
     return send_message(chat_id, f"❌ No {category.lower()} found for <b>{query}</b>.")
 
 
