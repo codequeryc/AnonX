@@ -32,7 +32,7 @@ def get_base_url():
         res.raise_for_status()
         records = res.json().get("records", [])
         if not records:
-            return "https://filmyfly.party"
+            return None
 
         original_url = records[0]["url"].rstrip("/")
         final_url = requests.get(original_url, headers=HEADERS, allow_redirects=True, timeout=10).url.rstrip("/")
@@ -48,7 +48,7 @@ def get_base_url():
 
     except Exception as e:
         print(f"❌ Failed to fetch/update BASE_URL from Xata: {e}")
-        return "https://filmyfly.party"
+        return None
 
 
 @app.route("/", methods=["GET"])
