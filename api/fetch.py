@@ -1,29 +1,22 @@
 import requests
-import os
 
-BLOG_URL = os.environ.get("BLOG_URL")  # set in Vercel environment
-
-def search_posts(query, max_results=5):
-    if not query:
-        return []
-
-    feed_url = f"{BLOG_URL}/feeds/posts/default?q={query}&alt=json"
-    response = requests.get(feed_url)
-
-    if response.status_code != 200:
-        return None
-
+def search_blogger(blog_url, query):
+    feed_url = f"{blog_url}/feeds/posts/default?q={query}&alt=json"
     try:
-        data = response.json()
+        res = requests.get(feed_url)
+        data = res.json()
         entries = data.get("feed", {}).get("entry", [])
+
+        if not entries:
+            return "❌ No matching posts found."
+
         results = []
-
-        for entry in entries[:max_results]:
+        for entry in entries[:3]:  # Limit to top 3 results
             title = entry.get("title", {}).get("$t", "No Title")
-            link = next((l["href"] for l in entry["link"] if l["rel"] == "alternate"), "#")
-            results.append({"title": title, "link": link})
+            link = next((l["href"] for l in entry.get("link", []) if l["rel"] == "alternate"), "#")
+            results.append(f"🔗 [{title}]({link})")
 
-        return results
+        return "\n\n".join(results)
+
     except Exception as e:
-        print("Error parsing Blogger feed:", e)
-        return None
+        return f"⚠️ Error fetching from Blogger: {str(e)}"
