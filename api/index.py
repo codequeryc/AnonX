@@ -1,16 +1,56 @@
 from flask import Flask, request
-import requests, os, threading
+import requests, os, threading, random, json
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from urllib.parse import quote
 
 app = Flask(__name__)
 
+# Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
-movie_links = {}
+BLOG_URL = os.environ.get("BLOG_URL")
 
+# Global variables
+movie_links = {}
+blogger_cache = {
+    'last_fetched': None,
+    'posts': [],
+    'expiry': timedelta(hours=1)
+}
+
+def get_random_blogger_post():
+    global blogger_cache
+    
+    if not BLOG_URL:
+        return None
+        
+    try:
+        # Return cached posts if still valid
+        if blogger_cache['last_fetched'] and \
+           datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry'] and \
+           blogger_cache['posts']:
+            return random.choice(blogger_cache['posts'])
+            
+        # Fetch fresh data
+        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
+        response = requests.get(feed_url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        
+        data = json.loads(response.text)
+        blogger_cache['posts'] = [
+            entry['link']['href'] 
+            for entry in data['feed']['entry']
+        ]
+        blogger_cache['last_fetched'] = datetime.now()
+        
+        return random.choice(blogger_cache['posts']) if blogger_cache['posts'] else None
+    except Exception as e:
+        print(f"Error fetching Blogger JSON feed: {e}")
+        return None
 
 def get_base_url():
     xata_url = f"{XATA_BASE_URL}/tables/domains/query"
@@ -46,11 +86,9 @@ def get_base_url():
     except:
         return None
 
-
 @app.route("/", methods=["GET"])
 def home():
     return f"🤖 Movie Bot Running! + {get_base_url()}"
-
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -93,7 +131,6 @@ def webhook():
 
     return {"ok": True}
 
-
 def send_help(chat_id, name):
     return send_message(chat_id,
         f"👋 <b>Welcome, {name}!</b>\n\n"
@@ -101,9 +138,8 @@ def send_help(chat_id, name):
         "🎥 <code>#movie Animal</code>\n"
         "📺 <code>#tv Breaking Bad</code>\n"
         "📽️ <code>#series Loki</code>\n\n"
-        "✨ I’ll find HD download links for you!"
+        "✨ I'll find HD download links for you!"
     )
-
 
 def handle_search(chat_id, query, label):
     query = query.strip()
@@ -132,7 +168,6 @@ def handle_search(chat_id, query, label):
     msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
     return send_message(chat_id, msg, buttons=buttons)
 
-
 def handle_callback(query):
     chat_id = query["message"]["chat"]["id"]
     data = query["data"]
@@ -153,6 +188,13 @@ def handle_callback(query):
     download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
     download_link = download["href"] if download and download.get("href") else link
 
+    # Get random blogger post
+    blog_post = get_random_blogger_post()
+    if blog_post:
+        final_url = f"{blog_post}?url={quote(download_link)}"
+    else:
+        final_url = download_link
+
     caption = (
         f"🎬 <b>{title}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -160,7 +202,7 @@ def handle_callback(query):
         f"<b>🈯 Language:</b> <code>{lang}</code>\n"
         f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
+        f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
@@ -176,13 +218,11 @@ def handle_callback(query):
 
     return {"ok": True}
 
-
 def get_info(soup, label):
     for div in soup.select("div.fname"):
         if div.contents and label.lower() in div.contents[0].lower():
             return div.select_one("div").get_text(strip=True)
     return "N/A"
-
 
 def send_message(chat_id, text, reply_to=None, buttons=None):
     payload = {
@@ -198,10 +238,8 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
     r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     return r.json() if r.ok else None
 
-
 def delete_message(chat_id, message_id):
     requests.post(f"{TELEGRAM_API}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id}, timeout=5)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
