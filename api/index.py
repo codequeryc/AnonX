@@ -91,7 +91,7 @@ def get_base_url():
 
 @app.route("/", methods=["GET"])
 def home():
-    return f"🤖 Movie Bot Running! + {get_base_url()}"
+    return f"🤖 Bot is Running!"
 
 @app.route("/", methods=["POST"])
 def webhook():
