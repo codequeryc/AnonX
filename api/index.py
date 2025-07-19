@@ -2,8 +2,6 @@ from flask import Flask, request
 import requests
 import feedparser
 import os
-import threading
-import time
 
 app = Flask(__name__)
 
@@ -28,12 +26,18 @@ def webhook():
     if not chat_id or not text:
         return {"ok": True}
 
-    # 🔗 If message contains a link
+    # 🔗 Check for disallowed links
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
-        threading.Thread(target=warn_and_delete_user_message, args=(chat_id, message_id, first_name)).start()
+        # ⚠️ Send warning message as reply
+        warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
+        send_message(chat_id, warning, reply_to=message_id)
+
+        # ❌ Delete the user's original message
+        delete_message(chat_id, message_id)
+
         return {"ok": True}
 
-    # 🤖 Handle /start and movie search
+    # 🤖 Handle /start or movie search
     if text.lower() == "/start":
         reply = f"🎬 Welcome {first_name}! Send any movie name to search."
     else:
@@ -42,20 +46,24 @@ def webhook():
     send_message(chat_id, reply)
     return {"ok": True}
 
-def warn_and_delete_user_message(chat_id, user_message_id, first_name):
-    # Step 1: Send a reply warning
-    warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
+def send_message(chat_id, text, reply_to=None):
     payload = {
         "chat_id": chat_id,
-        "text": warning,
-        "reply_to_message_id": user_message_id,
+        "text": text,
+        "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
+    if reply_to:
+        payload["reply_to_message_id"] = reply_to
+
     requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
-    # Step 2: Wait for a short moment before deleting the user message
-    time.sleep(1)
-    delete_message(chat_id, user_message_id)
+def delete_message(chat_id, message_id):
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id
+    }
+    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
 
 def search_movie(query, first_name):
     try:
@@ -73,19 +81,3 @@ def search_movie(query, first_name):
             return f"❌ Sorry {first_name}, no movies found for: <b>{query}</b>"
     except Exception as e:
         return f"⚠️ Error while searching: {e}"
-
-def send_message(chat_id, text):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
-    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
-
-def delete_message(chat_id, message_id):
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id
-    }
-    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
