@@ -3,6 +3,7 @@ import requests
 import feedparser
 import os
 import threading
+import time
 
 app = Flask(__name__)
 
@@ -27,11 +28,13 @@ def webhook():
     if not chat_id or not text:
         return {"ok": True}
 
+    # 🔴 Start background cleanup of old messages
+    threading.Thread(target=delete_old_messages, args=(chat_id,)).start()
+
     # 🔗 Block links
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
         warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
 
-        # Send warning message
         resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
             "chat_id": chat_id,
             "text": warning,
@@ -40,10 +43,10 @@ def webhook():
             "reply_to_message_id": message_id
         })
 
-        # Delete the user's message
+        # Delete user's message
         delete_message(chat_id, message_id)
 
-        # Delete the warning after 20 seconds (non-blocking)
+        # Delete warning after 20 seconds
         if resp.status_code == 200:
             result = resp.json()
             warning_msg_id = result.get("result", {}).get("message_id")
@@ -108,11 +111,10 @@ def send_message(chat_id, text, reply_to=None):
 
 
 def delete_message(chat_id, message_id):
-    payload = {
+    requests.post(f"{TELEGRAM_API}/deleteMessage", json={
         "chat_id": chat_id,
         "message_id": message_id
-    }
-    requests.post(f"{TELEGRAM_API}/deleteMessage", json=payload)
+    })
 
 
 def search_movie(query, first_name, category="Movie"):
@@ -132,3 +134,29 @@ def search_movie(query, first_name, category="Movie"):
             return f"❌ Sorry {first_name}, no {category.lower()} found for: <b>{query}</b>"
     except Exception as e:
         return f"⚠️ Error while searching: {e}"
+
+
+def delete_old_messages(chat_id):
+    try:
+        # Fetch recent 100 messages
+        resp = requests.get(f"{TELEGRAM_API}/getChatHistory", params={
+            "chat_id": chat_id,
+            "limit": 100
+        })
+
+        # Fallback if getChatHistory is not available, use getUpdates
+        if resp.status_code != 200 or not resp.json().get("ok"):
+            return
+
+        now_ts = int(time.time())
+
+        messages = resp.json().get("result", [])
+        for msg in messages:
+            msg_id = msg.get("message_id")
+            msg_date = msg.get("date")
+
+            if msg_date and (now_ts - msg_date > 30):  # older than 30 seconds
+                delete_message(chat_id, msg_id)
+
+    except Exception as e:
+        print("❌ Error deleting old messages:", e)
