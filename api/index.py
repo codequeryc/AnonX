@@ -2,6 +2,7 @@ from flask import Flask, request
 import requests
 import feedparser
 import os
+import threading
 
 app = Flask(__name__)
 
@@ -29,8 +30,26 @@ def webhook():
     # 🔗 Block links
     if any(link in text.lower() for link in ["http://", "https://", "t.me", "telegram.me"]):
         warning = f"⚠️ {first_name}, sharing links is not allowed in this group."
-        send_message(chat_id, warning, reply_to=message_id)
+
+        # Send warning message
+        resp = requests.post(f"{TELEGRAM_API}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": warning,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+            "reply_to_message_id": message_id
+        })
+
+        # Delete the user's message
         delete_message(chat_id, message_id)
+
+        # Delete the warning after 20 seconds (non-blocking)
+        if resp.status_code == 200:
+            result = resp.json()
+            warning_msg_id = result.get("result", {}).get("message_id")
+            if warning_msg_id:
+                threading.Timer(20.0, delete_message, args=(chat_id, warning_msg_id)).start()
+
         return {"ok": True}
 
     # 🤖 Handle /start command
