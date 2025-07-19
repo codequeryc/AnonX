@@ -99,7 +99,7 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    base_url = get_filmyfly_url()
+    base_url = url
     if not base_url:
         return send_message(chat_id, "❌ Source URL not found in database.")
 
