@@ -54,7 +54,7 @@ def warn_and_delete_user_message(chat_id, user_message_id, first_name):
     requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
     # Step 2: Wait for a short moment before deleting the user message
-    time.sleep(2)
+    time.sleep(1)
     delete_message(chat_id, user_message_id)
 
 def search_movie(query, first_name):
