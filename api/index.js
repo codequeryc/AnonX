@@ -6,12 +6,12 @@ module.exports = async (req, res) => {
   const BLOG_URL = process.env.BLOG_URL;
   const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
 
-  // ✅ Show "Bot is live" on GET request
+  // 🌐 GET request — browser pe visit karne par
   if (req.method === "GET") {
-    return res.status(200).send("🤖 Movie Bot is live on Vercel!");
+    return res.status(200).send("🤖 AnonX Movie Bot is live on Vercel!");
   }
 
-  // ✅ Telegram POST webhook
+  // 🤖 Telegram webhook POST request
   if (req.method === "POST") {
     const data = req.body;
 
@@ -24,9 +24,9 @@ module.exports = async (req, res) => {
     let reply = "";
 
     if (text === "/start") {
-      reply = "👋 Welcome to MovieBot!\nSend a movie name to get the download link.";
+      reply = "👋 Welcome to AnonX MovieBot!\nSend a movie name to get the download link.";
     } else if (text === "/help") {
-      reply = "ℹ️ Just send a movie name. Example: `Jawan 2023`";
+      reply = "ℹ️ Just send a movie name. Example: `Animal 2023`";
     } else {
       const searchUrl = `${BLOG_URL}/feeds/posts/default?q=${encodeURIComponent(text)}&alt=rss`;
       try {
@@ -58,6 +58,6 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true });
   }
 
-  // ❌ Method not allowed
+  // ❌ Invalid method
   res.status(405).send("Method Not Allowed");
 };
