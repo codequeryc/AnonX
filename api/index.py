@@ -48,7 +48,7 @@ def webhook():
             result = resp.json()
             warning_msg_id = result.get("result", {}).get("message_id")
             if warning_msg_id:
-                threading.Timer(20.0, delete_message, args=(chat_id, warning_msg_id)).start()
+                threading.Timer(10.0, delete_message, args=(chat_id, warning_msg_id)).start()
 
         return {"ok": True}
 
