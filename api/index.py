@@ -1,7 +1,7 @@
 from flask import Flask, request
 import requests, os, threading
 from bs4 import BeautifulSoup
-from config import get_and_update_url
+from .config import get_and_update_url
 
 app = Flask(__name__)
 
