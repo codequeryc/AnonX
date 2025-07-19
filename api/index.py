@@ -12,13 +12,12 @@ XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 movie_links = {}  # callback_id → {link, title}
 BASE_URL_CACHE = None
 
-
 def get_base_url():
     global BASE_URL_CACHE
     if BASE_URL_CACHE:
         return BASE_URL_CACHE
 
-    url = f"{XATA_BASE_URL}/tables/domains/query"
+    xata_query_url = f"{XATA_BASE_URL}/tables/domains/query"
     headers = {
         "Authorization": f"Bearer {XATA_API_KEY}",
         "Content-Type": "application/json"
@@ -29,16 +28,27 @@ def get_base_url():
     }
 
     try:
-        res = requests.post(url, headers=headers, json=payload, timeout=10)
+        res = requests.post(xata_query_url, headers=headers, json=payload, timeout=10)
         res.raise_for_status()
         records = res.json().get("records", [])
-        if records:
-            BASE_URL_CACHE = records[0]["url"].rstrip("/")
-            return BASE_URL_CACHE
-    except Exception as e:
-        print(f"❌ Failed to fetch BASE_URL from Xata: {e}")
+        if not records:
+            return "https://filmyfly.party"
 
-    return "https://filmyfly.party"
+        original_url = records[0]["url"].rstrip("/")
+        final_url = requests.get(original_url, headers=HEADERS, allow_redirects=True, timeout=10).url.rstrip("/")
+
+        if final_url != original_url:
+            record_id = records[0]["id"]
+            patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record_id}"
+            patch_data = {"url": final_url}
+            requests.patch(patch_url, headers=headers, json=patch_data, timeout=10)
+
+        BASE_URL_CACHE = final_url
+        return final_url
+
+    except Exception as e:
+        print(f"❌ Failed to fetch/update BASE_URL from Xata: {e}")
+        return "https://filmyfly.party"
 
 
 @app.route("/", methods=["GET"])
@@ -60,7 +70,6 @@ def webhook():
     msg_id = msg.get("message_id")
     user_name = msg.get("from", {}).get("first_name", "Friend")
 
-    # 🆕 Welcome new group member
     if "new_chat_members" in msg:
         for m in msg["new_chat_members"]:
             send_help(chat_id, m.get("first_name", "Friend"))
@@ -69,7 +78,6 @@ def webhook():
     if not chat_id or not msg_text:
         return {"ok": True}
 
-    # 🚫 Block links
     if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
         warn = f"⚠️ {user_name}, sharing links is not allowed."
         reply = send_message(chat_id, warn, reply_to=msg_id)
@@ -78,11 +86,9 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, reply["result"]["message_id"])).start()
         return {"ok": True}
 
-    # 🆘 Commands
     if msg_text.lower() in ["/start", "/help", "help"]:
         return send_help(chat_id, user_name)
 
-    # 🔍 Search
     if msg_text.lower().startswith("#movie "):
         return handle_search(chat_id, msg_text[7:], "Movie")
     if msg_text.lower().startswith("#tv "):
