@@ -7,13 +7,12 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-movie_links = {}
+movie_links = {}  # callback_id → {link, title}
 
-FILMYFLY_URL = "https://filmyfly.party"  # You can change to .durban or dynamic later
 
 @app.route("/", methods=["GET"])
 def home():
-    return f"🤖 Movie Bot Running!<br>URL: {FILMYFLY_URL}"
+    return "🤖 Movie Bot Running!"
 
 
 @app.route("/", methods=["POST"])
@@ -24,11 +23,13 @@ def webhook():
         return handle_callback(data["callback_query"])
 
     msg = data.get("message", {})
-    chat_id = msg.get("chat", {}).get("id")
+    chat = msg.get("chat", {})
+    chat_id = chat.get("id")
     msg_text = msg.get("text", "").strip()
     msg_id = msg.get("message_id")
     user_name = msg.get("from", {}).get("first_name", "Friend")
 
+    # 🆕 Welcome new group member
     if "new_chat_members" in msg:
         for m in msg["new_chat_members"]:
             send_help(chat_id, m.get("first_name", "Friend"))
@@ -37,6 +38,7 @@ def webhook():
     if not chat_id or not msg_text:
         return {"ok": True}
 
+    # 🚫 Block links
     if any(x in msg_text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
         warn = f"⚠️ {user_name}, sharing links is not allowed."
         reply = send_message(chat_id, warn, reply_to=msg_id)
@@ -45,9 +47,11 @@ def webhook():
             threading.Timer(10, delete_message, args=(chat_id, reply["result"]["message_id"])).start()
         return {"ok": True}
 
+    # 🆘 Commands
     if msg_text.lower() in ["/start", "/help", "help"]:
         return send_help(chat_id, user_name)
 
+    # 🔍 Search
     if msg_text.lower().startswith("#movie "):
         return handle_search(chat_id, msg_text[7:], "Movie")
     if msg_text.lower().startswith("#tv "):
@@ -74,32 +78,23 @@ def handle_search(chat_id, query, label):
     if not query:
         return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
 
-    search_url = f"{FILMYFLY_URL}/search/{query.replace(' ', '%20')}.html"
-
-    try:
-        res = requests.get(search_url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-    except Exception as e:
-        print("❌ Search error:", e)
-        return send_message(chat_id, "❌ Failed to fetch search results.")
+    url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
+    soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
 
     buttons = []
-    for div in soup.find_all("div", class_="A2"):
-        a_tags = div.find_all("a", href=True)
-        if len(a_tags) >= 2:
-            title = a_tags[1].get_text(strip=True)
-            href = a_tags[1]["href"]
-            full_link = FILMYFLY_URL + href if href.startswith("/") else href
-            cid = f"movie_{abs(hash(title + full_link))}"
-            movie_links[cid] = {"title": title, "link": full_link}
-            buttons.append([{"text": title[:50], "callback_data": cid}])
+    for item in soup.select("div.A2"):
+        a, b = item.find("a", href=True), item.find("b")
+        if a and b:
+            title = b.text.strip()
+            link = "https://filmyfly.party" + a["href"]
+            cid = f"movie_{abs(hash(title + link))}"
+            movie_links[cid] = {"title": title, "link": link}
+            buttons.append([{"text": title, "callback_data": cid}])
         if len(buttons) >= 10:
             break
 
-    if not buttons:
-        return send_message(chat_id, f"❌ No {label.lower()} found for <b>{query}</b>.")
-    
-    return send_message(chat_id, f"🔍 {label} results for <b>{query}</b>:", buttons=buttons)
+    msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found for <b>{query}</b>."
+    return send_message(chat_id, msg, buttons=buttons)
 
 
 def handle_callback(query):
@@ -111,13 +106,7 @@ def handle_callback(query):
         return send_message(chat_id, "⚠️ Link expired or not found.")
 
     link, title = movie["link"], movie["title"]
-
-    try:
-        res = requests.get(link, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-    except Exception as e:
-        print("❌ Callback error:", e)
-        return send_message(chat_id, "❌ Failed to load movie details.")
+    soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
 
     poster = soup.select_one("div.movie-thumb img")
     ss = soup.select_one("div.ss img")
@@ -129,13 +118,13 @@ def handle_callback(query):
     download_link = download["href"] if download and download.get("href") else link
 
     caption = (
-        f"🎬 <b>{title}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>📁 Size:</b> <code>{size}</code>\n"
-        f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-        f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
+    f"🎬 <b>{title}</b>\n"
+    f"━━━━━━━━━━━━━━━━━━━\n"
+    f"<b>📁 Size:</b> <code>{size}</code>\n"
+    f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+    f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+    f"━━━━━━━━━━━━━━━━━━━\n"
+    f"🔗 <a href='{download_link}'><b>📥 Download Now</b></a>\n"
     )
 
     media = []
