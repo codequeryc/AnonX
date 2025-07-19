@@ -5,56 +5,45 @@ import os
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-BLOG_URL = os.environ.get("BLOG_URL")
-VERCEL_URL = os.environ.get("VERCEL_URL")
-
-if not VERCEL_URL.startswith("http"):
-    VERCEL_URL = "https://" + VERCEL_URL
-
+BLOG_URL = os.environ.get("BLOG_URL")  # Must be a public Blogger feed URL
+VERCEL_URL = os.environ.get("VERCEL_URL", "https://anonx-chi.vercel.app")
 FIND_URL = f"{VERCEL_URL}/api/find"
+
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🤖 Movie Bot is running!"
+    return "🤖 Movie Bot is Running!"
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/", methods=["POST"])
 def webhook():
-    data = request.get_json()
-
-    if not data or "message" not in data:
-        return {"status": "ignored"}, 200
-
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "")
+    data = request.get_json(force=True)
+    message = data.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    text = message.get("text", "").strip()
 
     if text.startswith("/start"):
-        send_message(chat_id, "🎬 Welcome to Movie Bot! Send any movie name to search.")
-    else:
-        # Search movie from find endpoint
+        reply = "🎬 Welcome to MovieBot!\nSend any movie name to search."
+    elif text:
         try:
-            res = requests.post(FIND_URL, json={"query": text})
-            result = res.json()
-
-            if result.get("success") and result.get("movies"):
+            search = requests.get(FIND_URL, params={"q": text}, timeout=10).json()
+            results = search.get("results", [])
+            if results:
                 reply = "\n\n".join(
-                    [f"🎬 <b>{m['title']}</b>\n🔗 <a href='{m['url']}'>Watch Now</a>" for m in result["movies"]]
+                    [f"🎬 <b>{r['title']}</b>\n<a href='{r['link']}'>Watch Now</a>" for r in results]
                 )
-                send_message(chat_id, reply, parse_mode="HTML")
             else:
-                send_message(chat_id, "❌ Movie not found.")
+                reply = "❌ No results found."
         except Exception as e:
-            send_message(chat_id, f"⚠️ Error while searching: {str(e)}")
+            reply = f"⚠️ Error while searching: {e}"
+    else:
+        reply = "❓ Unknown command."
 
-    return {"status": "ok"}, 200
-
-def send_message(chat_id, text, parse_mode=None):
-    payload = {
+    requests.post(TELEGRAM_API, json={
         "chat_id": chat_id,
-        "text": text
-    }
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
+        "text": reply,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    })
 
-    requests.post(TELEGRAM_API, json=payload)
+    return {"ok": True}
