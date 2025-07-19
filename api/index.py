@@ -41,7 +41,7 @@ def webhook():
                 threading.Timer(10, delete_message, args=(chat_id, warn_id)).start()
             return {"ok": True}
 
-        # Start
+        # Start command
         if msg_text.lower() == "/start":
             welcome = (
                 f"🎬 Welcome {user_name}!\n"
@@ -84,7 +84,7 @@ def handle_callback(query):
             res = requests.get(link, headers=headers, timeout=10)
             soup = BeautifulSoup(res.text, "html.parser")
 
-            # Find poster and screenshot
+            # Extract poster and screenshot
             poster_tag = soup.select_one("div.movie-thumb img")
             ss_tag = soup.select_one("div.ss img")
             poster_url = poster_tag["src"] if poster_tag else None
@@ -92,6 +92,7 @@ def handle_callback(query):
 
             media = []
 
+            # Add poster (with caption)
             if poster_url:
                 media.append({
                     "type": "photo",
@@ -100,12 +101,14 @@ def handle_callback(query):
                     "parse_mode": "HTML"
                 })
 
+            # Add screenshot (no caption)
             if ss_url:
                 media.append({
                     "type": "photo",
                     "media": ss_url
                 })
 
+            # Send media group
             if media:
                 requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={
                     "chat_id": chat_id,
@@ -190,4 +193,3 @@ def search_filmyfly(query, category):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
