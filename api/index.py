@@ -19,21 +19,21 @@ def webhook():
     message = data.get("message", {})
     chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "").strip().lower()
+    first_name = message.get("from", {}).get("first_name", "Friend")
 
     if not chat_id or not text:
         return {"ok": True}
 
     if text == "/start":
-        reply = "🎬 Welcome to Movie Bot! Send any movie name to search."
+        reply = f"🎬 Welcome {first_name}! Send any movie name to search."
     else:
-        reply = search_movie(text)
+        reply = search_movie(text, first_name)
 
     send_message(chat_id, reply)
     return {"ok": True}
 
-def search_movie(query):
+def search_movie(query, first_name):
     try:
-        # Use feedparser to parse Blogger RSS feed
         feed_url = f"{BLOG_URL}/feeds/posts/default?alt=rss"
         feed = feedparser.parse(feed_url)
         matches = []
@@ -44,12 +44,12 @@ def search_movie(query):
                 matches.append(f"🎬 {entry.title}\n🔗 {entry.link}")
 
         if matches:
-            return "\n\n".join(matches[:5])  # max 5 results
+            return "\n\n".join(matches[:5])
         else:
-            return "❌ No movies found matching your query."
+            return f"❌ Sorry {first_name}, no movies found for: <b>{query}</b>"
 
     except Exception as e:
-        return f"⚠️ Error searching movies: {e}"
+        return f"⚠️ Error while searching: {e}"
 
 def send_message(chat_id, text):
     payload = {
