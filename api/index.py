@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Set this as an environment variable
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 @app.route("/", methods=["GET"])
@@ -17,7 +17,7 @@ def home():
 def webhook():
     data = request.get_json(force=True)
 
-    # ✅ Handle callback from inline button
+    # ✅ Handle callback_query (button click)
     if "callback_query" in data:
         callback = data["callback_query"]
         chat_id = callback["message"]["chat"]["id"]
@@ -26,13 +26,14 @@ def webhook():
         data_url = callback.get("data")
 
         content, poster_url = fetch_filmyfly_post(data_url)
+
         if poster_url:
             send_photo(chat_id, poster_url, content)
         else:
             send_message(chat_id, content, reply_to=message_id)
         return {"ok": True}
 
-    # ✅ Handle normal message
+    # ✅ Handle regular message
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     user_text = msg.get("text", "").strip()
@@ -104,6 +105,8 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
         payload["reply_markup"] = {"inline_keyboard": buttons}
 
     res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+    if not res.ok:
+        print("Send Message Error:", res.text)
     return res.json() if res.ok else None
 
 
@@ -115,7 +118,9 @@ def send_photo(chat_id, image_url, caption=None):
         "caption": caption,
         "parse_mode": "HTML"
     }
-    requests.post(f"{TELEGRAM_API}/sendPhoto", json=payload)
+    res = requests.post(f"{TELEGRAM_API}/sendPhoto", json=payload)
+    if not res.ok:
+        print("Send Photo Error:", res.text)
 
 
 # 🗑️ Delete message
@@ -126,7 +131,7 @@ def delete_message(chat_id, message_id):
     })
 
 
-# 🔍 Search result buttons
+# 🔍 Search results from filmyfly
 def search_filmyfly(query, user_name, category):
     try:
         url = f"https://filmyfly.party/site-1.html?to-search={query.replace(' ', '+')}"
@@ -154,7 +159,7 @@ def search_filmyfly(query, user_name, category):
         return f"⚠️ Error: {e}", []
 
 
-# 📥 Fetch content from post
+# 📥 Scrape full post
 def fetch_filmyfly_post(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -173,11 +178,12 @@ def fetch_filmyfly_post(url):
         screenshot_tag = soup.select_one(".ss img")
         screenshot_url = screenshot_tag["src"] if screenshot_tag else None
 
-        # Download
+        # Download link
         download_tag = soup.select_one(".dlbtn a")
         download_url = download_tag["href"] if download_tag else None
         download_text = download_tag.text.strip() if download_tag else "Download"
 
+        # Build message
         message = f"<b>{title}</b>\n\n"
         if screenshot_url:
             message += f"<a href='{screenshot_url}'>🖼️ Screenshot</a>\n"
