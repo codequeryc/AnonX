@@ -1,22 +1,27 @@
 import requests
+import os
+from bs4 import BeautifulSoup
 
-def search_blogger(blog_url, query):
-    feed_url = f"{blog_url}/feeds/posts/default?q={query}&alt=json"
+BLOG_URL = os.environ["BLOG_URL"]
+
+def search_blogger(query):
     try:
-        res = requests.get(feed_url)
-        data = res.json()
-        entries = data.get("feed", {}).get("entry", [])
+        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=rss"
+        res = requests.get(feed_url, timeout=10)
+        soup = BeautifulSoup(res.content, "xml")
 
-        if not entries:
-            return "❌ No matching posts found."
-
+        items = soup.find_all("item")
         results = []
-        for entry in entries[:3]:  # Limit to top 3 results
-            title = entry.get("title", {}).get("$t", "No Title")
-            link = next((l["href"] for l in entry.get("link", []) if l["rel"] == "alternate"), "#")
-            results.append(f"🔗 [{title}]({link})")
 
-        return "\n\n".join(results)
+        for item in items:
+            title = item.title.text
+            link = item.link.text
+
+            if query.lower() in title.lower():
+                results.append(f"🔹 [{title}]({link})")
+
+        return results[:5]  # Limit to top 5 results
 
     except Exception as e:
-        return f"⚠️ Error fetching from Blogger: {str(e)}"
+        print(f"Error in search_blogger: {e}")
+        return []
