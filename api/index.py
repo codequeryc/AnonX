@@ -15,7 +15,7 @@ TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # Configurations
-MOVIE_LINK_EXPIRY = timedelta(minutes=60)
+MOVIE_LINK_EXPIRY = timedelta(minutes=15)
 movie_links = {}
 
 
@@ -96,7 +96,7 @@ def handle_search(chat_id, query, label, user_msg_id):
             buttons.append([{"text": title, "callback_data": cid}])
 
     msg = f"🔎 <b>{label}</b> results for <code>{query}</code>:" if buttons else f"🚫 <b>No {label.lower()} found</b> for <code>{query}</code>.\n📝 Please check your spelling or try a different keyword."
-    result = send_message(chat_id, msg + "\n\n⌛ <i><b>Note:</b> This message will auto-delete in 1 hour.</i>", buttons=buttons, reply_to=user_msg_id)
+    result = send_message(chat_id, msg + "\n\n⌛ <i><b>Note:</b> This message will auto-delete in 15 min.</i>", buttons=buttons, reply_to=user_msg_id)
 
     if result and "result" in result:
         schedule_deletion(chat_id, user_msg_id, result["result"]["message_id"])
@@ -104,7 +104,7 @@ def handle_search(chat_id, query, label, user_msg_id):
     return result
 
 # Utilities
-def schedule_deletion(chat_id, user_msg_id, bot_msg_id, delay=3600):
+def schedule_deletion(chat_id, user_msg_id, bot_msg_id, delay=900):
     def delete():
         delete_message(chat_id, user_msg_id)
         delete_message(chat_id, bot_msg_id)
