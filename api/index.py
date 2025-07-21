@@ -1,5 +1,5 @@
 from flask import Flask, request
-import requests, os, random, json, threading, base64
+import requests, os, json, base64
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -14,18 +14,21 @@ XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 BLOG_URL = os.environ.get("BLOG_URL")
 
-# Global variables
-movie_links = {}
+# Blogger cache
 blogger_cache = {
     'last_fetched': None,
     'posts': [],
     'expiry': timedelta(hours=1)
 }
 
-# Base64 encode (btoa equivalent)
+# Base64 encode/decode
 def btoa(string):
-    return base64.b64encode(string.encode()).decode()
+    return base64.urlsafe_b64encode(string.encode()).decode()
 
+def atob(string):
+    return base64.urlsafe_b64decode(string.encode()).decode()
+
+# Get random blogger post
 def get_random_blogger_post():
     global blogger_cache
     if not BLOG_URL:
@@ -54,10 +57,10 @@ def get_random_blogger_post():
         blogger_cache['last_fetched'] = datetime.now()
 
         return random.choice(posts) if posts else None
-    except Exception as e:
-        print(f"Error fetching Blogger JSON feed: {e}")
+    except:
         return None
 
+# Get main base URL from Xata
 def get_base_url():
     try:
         url = f"{XATA_BASE_URL}/tables/domains/query"
@@ -134,6 +137,7 @@ def webhook():
 
     return {"ok": True}
 
+# Help command
 def send_help(chat_id, name):
     return send_message(chat_id,
         f"👋 <b>Welcome, {name}!</b>\n\n"
@@ -144,6 +148,7 @@ def send_help(chat_id, name):
         "✨ I'll find HD download links for you!"
     )
 
+# Search logic
 def handle_search(chat_id, query, label):
     query = query.strip()
     if not query:
@@ -162,24 +167,34 @@ def handle_search(chat_id, query, label):
         if a and b:
             title = b.text.strip()
             link = base_url + a["href"]
-            cid = f"movie_{abs(hash(title + link))}"
-            movie_links[cid] = {"title": title, "link": link}
-            buttons.append([{"text": title, "callback_data": cid}])
+            data = json.dumps({"title": title, "link": link})
+            encoded = btoa(data)
+            buttons.append([{"text": title, "callback_data": f"data_{encoded}"}])
         if len(buttons) >= 10:
             break
 
     msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
     return send_message(chat_id, msg, buttons=buttons)
 
+# Callback handler
 def handle_callback(query):
     chat_id = query["message"]["chat"]["id"]
     data = query["data"]
-    movie = movie_links.get(data)
 
-    if not movie:
-        return send_message(chat_id, "⚠️ Link expired or not found.")
+    if not data.startswith("data_"):
+        return send_message(chat_id, "⚠️ Invalid or expired callback.")
 
-    link, title = movie["link"], movie["title"]
+    try:
+        decoded = atob(data[5:])
+        movie = json.loads(decoded)
+    except:
+        return send_message(chat_id, "⚠️ Failed to decode callback.")
+
+    title = movie.get("title", "Unknown")
+    link = movie.get("link")
+    if not link:
+        return send_message(chat_id, "⚠️ Link missing.")
+
     soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
 
     poster = soup.select_one("div.movie-thumb img")
@@ -221,12 +236,14 @@ def handle_callback(query):
 
     return {"ok": True}
 
+# Extract info from soup
 def get_info(soup, label):
     for div in soup.select("div.fname"):
         if div.contents and label.lower() in div.contents[0].lower():
             return div.select_one("div").get_text(strip=True)
     return "N/A"
 
+# Send message helper
 def send_message(chat_id, text, reply_to=None, buttons=None):
     payload = {
         "chat_id": chat_id,
@@ -241,6 +258,7 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
     r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     return r.json() if r.ok else None
 
+# Delete message helper
 def delete_message(chat_id, message_id):
     requests.post(f"{TELEGRAM_API}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id}, timeout=5)
 
