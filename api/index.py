@@ -97,7 +97,11 @@ def handle_search(chat_id, query, label, user_msg_id):
         return send_message(chat_id, "❌ Base URL not found.")
 
     url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
-    soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
+    try:
+        soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
+    except Exception as e:
+        print(f"[❌] Search failed: {e}")
+        return send_message(chat_id, "❌ Failed to search. Please try again later.")
 
     buttons = []
     for item in soup.select("div.A2"):
@@ -109,7 +113,8 @@ def handle_search(chat_id, query, label, user_msg_id):
             movie_links[cid] = {
                 "title": title,
                 "link": link,
-                "timestamp": datetime.now()
+                "timestamp": datetime.now(),
+                "disabled": False  # Track button state
             }
             buttons.append([{"text": title, "callback_data": cid}])
         if len(buttons) >= 10:
@@ -128,63 +133,109 @@ def handle_callback(query):
     chat_id = query["message"]["chat"]["id"]
     message_id = query["message"]["message_id"]
     data = query["data"]
+    user_id = query["from"]["id"]
+    
+    # Check if the callback is for a disabled button
+    if data.startswith("disabled_"):
+        return answer_callback(query["id"], "⚠️ This link has expired or been used already.")
+    
     movie = movie_links.get(data)
 
-    # Expiry check
-    if not movie or datetime.now() - movie.get("timestamp", datetime.min) > MOVIE_LINK_EXPIRY:
+    # Check for expiry or disabled state
+    if not movie or datetime.now() - movie.get("timestamp", datetime.min) > MOVIE_LINK_EXPIRY or movie.get("disabled"):
+        # Update button to show it's disabled
+        edit_button_to_disabled(chat_id, message_id, data)
         movie_links.pop(data, None)
-        return send_message(chat_id, "⚠️ This link has expired. Please search again.")
+        return answer_callback(query["id"], "⚠️ This link has expired. Please search again.")
 
-    link, title = movie["link"], movie["title"]
-    soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
+    try:
+        # Mark button as disabled immediately
+        movie["disabled"] = True
+        edit_button_to_disabled(chat_id, message_id, data)
+        
+        link, title = movie["link"], movie["title"]
+        soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
 
-    poster = soup.select_one("div.movie-thumb img")
-    ss = soup.select_one("div.ss img")
-    size = get_info(soup, "Size")
-    lang = get_info(soup, "Language")
-    genre = get_info(soup, "Genre")
+        poster = soup.select_one("div.movie-thumb img")
+        ss = soup.select_one("div.ss img")
+        size = get_info(soup, "Size")
+        lang = get_info(soup, "Language")
+        genre = get_info(soup, "Genre")
 
-    download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
-    download_link = download["href"] if download and download.get("href") else link
+        download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
+        download_link = download["href"] if download and download.get("href") else link
 
-    blog_post = get_random_blogger_post()
-    final_url = f"{blog_post}?url={btoa(download_link)}" if blog_post else download_link
+        blog_post = get_random_blogger_post()
+        if blog_post:
+            encoded = btoa(download_link)
+            final_url = f"{blog_post}?url={encoded}"
+        else:
+            final_url = download_link
 
-    caption = (
-        f"🎬 <b>{title}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>📁 Size:</b> <code>{size}</code>\n"
-        f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-        f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>\n"
-    )
+        caption = (
+            f"🎬 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>📁 Size:</b> <code>{size}</code>\n"
+            f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+            f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>\n"
+        )
 
-    media = []
-    if poster:
-        media.append({"type": "photo", "media": poster["src"], "caption": caption, "parse_mode": "HTML"})
-    if ss:
-        media.append({"type": "photo", "media": ss["src"]})
+        media = []
+        if poster:
+            media.append({"type": "photo", "media": poster["src"], "caption": caption, "parse_mode": "HTML"})
+        if ss:
+            media.append({"type": "photo", "media": ss["src"]})
 
-    if media:
-        requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=10)
-    else:
-        send_message(chat_id, caption)
+        if media:
+            requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=10)
+        else:
+            send_message(chat_id, caption)
 
-    # 🔄 Disable the clicked button only
-    buttons = query["message"]["reply_markup"]["inline_keyboard"]
-    for row in buttons:
-        for btn in row:
-            if btn.get("callback_data") == data:
-                btn["text"] = "✅ Selected"
-                btn.pop("callback_data", None)
+        return answer_callback(query["id"])
 
-    requests.post(
-        f"{TELEGRAM_API}/editMessageReplyMarkup",
-        json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": buttons}},
-        timeout=5
-    )
+    except Exception as e:
+        print(f"[❌] Callback failed: {e}")
+        return answer_callback(query["id"], "❌ Failed to process your request. Please try again.")
 
+def edit_button_to_disabled(chat_id, message_id, callback_data):
+    """Edit the clicked button to show it's disabled"""
+    try:
+        # Get current message markup
+        msg_info = requests.post(f"{TELEGRAM_API}/getChatMessage", json={
+            "chat_id": chat_id,
+            "message_id": message_id
+        }, timeout=5).json()
+        
+        if not msg_info.get("ok"):
+            return
+
+        keyboard = msg_info["result"].get("reply_markup", {}).get("inline_keyboard", [])
+        
+        # Update the clicked button
+        for row in keyboard:
+            for btn in row:
+                if btn.get("callback_data") == callback_data:
+                    btn["text"] = "❌ " + btn["text"]
+                    btn["callback_data"] = "disabled_" + callback_data
+                    break
+        
+        # Edit the message with updated buttons
+        requests.post(f"{TELEGRAM_API}/editMessageReplyMarkup", json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": {"inline_keyboard": keyboard}
+        }, timeout=5)
+    except Exception as e:
+        print(f"[❌] Failed to disable button: {e}")
+
+def answer_callback(callback_id, text=None):
+    payload = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+        payload["show_alert"] = True
+    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", json=payload, timeout=5)
     return {"ok": True}
 
 def get_info(soup, label):
