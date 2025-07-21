@@ -133,7 +133,7 @@ def handle_callback(query):
         download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
         download_link = download.get("href") if download else movie["link"]
 
-        final_url = f"{get_random_blogger_post()}?url={btoa(download_link)}" if get_random_blogger_post() else download_link
+        final_url = f"{get_random_blogger_post()}?id={btoa(download_link)}" if get_random_blogger_post() else download_link
         caption = f"""🎬 <b>{movie['title']}</b>
 ━━━━━━━━━━━━━━━━━━━
 <b>📁 Size:</b> <code>{size}</code>
