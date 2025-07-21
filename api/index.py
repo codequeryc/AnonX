@@ -95,8 +95,8 @@ def handle_search(chat_id, query, label, user_msg_id):
             movie_links[cid] = {"title": title, "link": link, "timestamp": now(), "disabled": False}
             buttons.append([{"text": title, "callback_data": cid}])
 
-    msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
-    result = send_message(chat_id, msg + "\n\n🕒 <i>Results auto-delete in 1 hour</i>", buttons=buttons)
+    msg = f"🔎 <b>{label}</b> results for <code>{query}</code>:" if buttons else f"🚫 <b>No {label.lower()} found</b> for <code>{query}</code>.\n📝 Please check your spelling or try a different keyword."
+    result = send_message(chat_id, msg + "\n\n⌛ <i><b>Note:</b> This message will auto-delete in 1 hour.</i>", buttons=buttons)
 
     if result and "result" in result:
         schedule_deletion(chat_id, user_msg_id, result["result"]["message_id"])
