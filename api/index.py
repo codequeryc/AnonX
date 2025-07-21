@@ -1,5 +1,10 @@
 from flask import Flask, request
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
+
 from bot import process_webhook
+
 
 app = Flask(__name__)
 
