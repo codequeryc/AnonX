@@ -165,11 +165,31 @@ def get_info(soup, label):
 def get_base_url():
     try:
         url = f"{XATA_BASE_URL}/tables/domains/query"
-        headers = {"Authorization": f"Bearer {XATA_API_KEY}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {XATA_API_KEY}",
+            "Content-Type": "application/json"
+        }
         payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
         res = requests.post(url, headers=headers, json=payload, timeout=10)
-        url = res.json()["records"][0]["url"].rstrip("/")
-        return requests.get(url, headers=HEADERS, timeout=10).url.rstrip("/")
+        res.raise_for_status()
+
+        records = res.json().get("records", [])
+        if not records:
+            return None
+
+        original_url = records[0]["url"].rstrip("/")
+        record_id = records[0]["id"]
+
+        try:
+            final_url = requests.get(original_url, headers=HEADERS, timeout=10).url.rstrip("/")
+        except:
+            final_url = original_url
+
+        if final_url != original_url:
+            patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record_id}"
+            requests.patch(patch_url, headers=headers, json={"url": final_url}, timeout=10)
+
+        return final_url
     except:
         return None
 
