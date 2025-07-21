@@ -127,7 +127,6 @@ def handle_search(chat_id, query, label, user_msg_id):
 
 def handle_callback(query):
     chat_id = query["message"]["chat"]["id"]
-    message_id = query["message"]["message_id"]
     data = query["data"]
     movie = movie_links.get(data)
 
@@ -175,33 +174,6 @@ def handle_callback(query):
         requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=10)
     else:
         send_message(chat_id, caption)
-
-    # ✅ Update inline button to show "Link Sent"
-    original_markup = query["message"].get("reply_markup", {}).get("inline_keyboard", [])
-    updated_markup = []
-
-    for row in original_markup:
-        new_row = []
-        for btn in row:
-            if btn.get("callback_data") == data:
-                new_row.append({"text": "✅ Link Sent", "callback_data": "done"})
-            else:
-                new_row.append(btn)
-        updated_markup.append(new_row)
-
-    # Edit button with new markup
-    requests.post(f"{TELEGRAM_API}/editMessageReplyMarkup", json={
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "reply_markup": {"inline_keyboard": updated_markup}
-    }, timeout=5)
-
-    # Optional: show toast feedback
-    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", data={
-        "callback_query_id": query["id"],
-        "text": "✅ Link sent!",
-        "show_alert": False
-    })
 
     return {"ok": True}
 
