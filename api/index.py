@@ -17,7 +17,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 # Configurations
 MOVIE_LINK_EXPIRY = timedelta(minutes=60)
 movie_links = {}
-blogger_cache = {'last_fetched': None, 'posts': [], 'expiry': timedelta(hours=1)}
+
 
 # Helpers
 def btoa(s): return base64.b64encode(s.encode()).decode()
@@ -177,12 +177,19 @@ def get_random_blogger_post():
     if not BLOG_URL:
         return None
     try:
-        if blogger_cache['last_fetched'] and now() - blogger_cache['last_fetched'] < blogger_cache['expiry']:
-            return random.choice(blogger_cache['posts'])
-        data = requests.get(f"{BLOG_URL}/feeds/posts/default?alt=json", headers=HEADERS, timeout=10).json()
-        blogger_cache['posts'] = [l['href'] for e in data['feed'].get('entry', []) for l in e.get('link', []) if l['rel'] == 'alternate']
-        blogger_cache['last_fetched'] = now()
-        return random.choice(blogger_cache['posts'])
+        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
+        res = requests.get(feed_url, headers=HEADERS, timeout=10)
+        data = res.json()
+
+        entries = data.get("feed", {}).get("entry", [])
+        links = [
+            link.get("href")
+            for entry in entries
+            for link in entry.get("link", [])
+            if link.get("rel") == "alternate" and link.get("href")
+        ]
+
+        return random.choice(links) if links else None
     except:
         return None
 
