@@ -88,7 +88,7 @@ def send_help(chat_id, name):
         "🎬 <b>Search Movies & Series:</b>\n"
         "🎥 <code>#movie Animal</code>\n"
         "📺 <code>#tv Breaking Bad</code>\n"
-        "📽️ <code>#series Loki</code>\n\n"
+        "🎽️ <code>#series Loki</code>\n\n"
         "✨ I'll find HD download links for you!"
     )
 
@@ -210,12 +210,12 @@ def handle_callback(query):
 
         caption = (
             f"🎬 <b>{title}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"<b>📁 Size:</b> <code>{size}</code>\n"
-            f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+            f"<b>🇨 Language:</b> <code>{lang}</code>\n"
             f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 <a href='{final_url}'><b>👅 Download Now</b></a>"
         )
 
         media = []
