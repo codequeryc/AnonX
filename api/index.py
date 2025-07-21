@@ -14,8 +14,11 @@ XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 BLOG_URL = os.environ.get("BLOG_URL")
 
+# 🔁 Add expiry time
 MOVIE_LINK_EXPIRY = timedelta(minutes=60)
 movie_links = {}
+
+# Blogger cache
 blogger_cache = {'last_fetched': None, 'posts': [], 'expiry': timedelta(hours=1)}
 
 def btoa(string): return base64.b64encode(string.encode()).decode()
@@ -123,10 +126,11 @@ def handle_search(chat_id, query, label, user_msg_id):
 
 def handle_callback(query):
     chat_id = query["message"]["chat"]["id"]
-    msg_id = query["message"]["message_id"]
+    message_id = query["message"]["message_id"]
     data = query["data"]
     movie = movie_links.get(data)
 
+    # Expiry check
     if not movie or datetime.now() - movie.get("timestamp", datetime.min) > MOVIE_LINK_EXPIRY:
         movie_links.pop(data, None)
         return send_message(chat_id, "⚠️ This link has expired. Please search again.")
@@ -167,20 +171,21 @@ def handle_callback(query):
     else:
         send_message(chat_id, caption)
 
-    # ✅ Disable button for everyone
-    edit_reply_markup(chat_id, msg_id)
+    # 🔄 Disable the clicked button only
+    buttons = query["message"]["reply_markup"]["inline_keyboard"]
+    for row in buttons:
+        for btn in row:
+            if btn.get("callback_data") == data:
+                btn["text"] = "✅ Selected"
+                btn.pop("callback_data", None)
+
+    requests.post(
+        f"{TELEGRAM_API}/editMessageReplyMarkup",
+        json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": buttons}},
+        timeout=5
+    )
 
     return {"ok": True}
-
-def edit_reply_markup(chat_id, message_id):
-    try:
-        requests.post(
-            f"{TELEGRAM_API}/editMessageReplyMarkup",
-            json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}},
-            timeout=5
-        )
-    except Exception as e:
-        print(f"[❌] Failed to edit inline buttons: {e}")
 
 def get_info(soup, label):
     for div in soup.select("div.fname"):
@@ -202,6 +207,7 @@ def get_random_blogger_post():
 
         feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
         response = requests.get(feed_url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
         data = response.json()
 
         posts = []
@@ -227,6 +233,7 @@ def get_base_url():
         }
         payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
         res = requests.post(url, headers=headers, json=payload, timeout=10)
+        res.raise_for_status()
         records = res.json().get("records", [])
         if not records:
             return None
