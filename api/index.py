@@ -7,17 +7,16 @@ import hashlib
 
 app = Flask(__name__)
 
-# Environment variables
+# Env vars
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 XATA_API_KEY = os.environ.get("XATA_API_KEY")
 XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 BLOG_URL = os.environ.get("BLOG_URL")
-MAX_RESULTS = 10  # Maximum number of results to show
-CALLBACK_DATA_MAX_SIZE = 64  # Telegram's callback_data size limit
+MAX_RESULTS = 10
+CALLBACK_DATA_MAX_SIZE = 64
 
-# Global variables
 blogger_cache = {
     'last_fetched': None,
     'posts': [],
@@ -25,89 +24,13 @@ blogger_cache = {
 }
 
 def btoa(string):
-    """Base64 encode (btoa equivalent) with URL-safe encoding"""
     return base64.urlsafe_b64encode(string.encode()).decode().rstrip("=")
 
 def atob(string):
-    """Base64 decode (atob equivalent) with URL-safe encoding"""
     padding = len(string) % 4
     if padding:
         string += "=" * (4 - padding)
     return base64.urlsafe_b64decode(string).decode()
-
-def get_random_blogger_post():
-    global blogger_cache
-    if not BLOG_URL:
-        return None
-    try:
-        if (
-            blogger_cache['last_fetched'] and
-            datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry'] and
-            blogger_cache['posts']
-        ):
-            return random.choice(blogger_cache['posts'])
-
-        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
-        response = requests.get(feed_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        posts = []
-        for entry in data['feed'].get('entry', []):
-            for link in entry.get('link', []):
-                if link.get('rel') == 'alternate' and link.get('type') == 'text/html':
-                    posts.append(link['href'])
-                    break
-
-        blogger_cache['posts'] = posts
-        blogger_cache['last_fetched'] = datetime.now()
-
-        return random.choice(posts) if posts else None
-    except Exception as e:
-        print(f"Error fetching Blogger JSON feed: {e}")
-        return None
-
-def get_base_url():
-    try:
-        url = f"{XATA_BASE_URL}/tables/domains/query"
-        headers = {
-            "Authorization": f"Bearer {XATA_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
-        res = requests.post(url, headers=headers, json=payload, timeout=10)
-        res.raise_for_status()
-
-        records = res.json().get("records", [])
-        if not records:
-            return None
-
-        original_url = records[0]["url"].rstrip("/")
-        record_id = records[0]["id"]
-
-        try:
-            final_url = requests.get(original_url, headers=HEADERS, timeout=10).url.rstrip("/")
-        except:
-            final_url = original_url
-
-        if final_url != original_url:
-            patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record_id}"
-            requests.patch(patch_url, headers=headers, json={"url": final_url}, timeout=10)
-
-        return final_url
-    except Exception as e:
-        print(f"Error getting base URL: {e}")
-        return None
-
-def validate_url(url):
-    """Validate and sanitize URLs"""
-    try:
-        result = urlparse(url)
-        if all([result.scheme, result.netloc]):
-            return url
-        return None
-    except:
-        return None
 
 @app.route("/", methods=["GET"])
 def home():
@@ -135,7 +58,6 @@ def webhook():
         if not chat_id or not text:
             return {"ok": True}
 
-        # Check for links in message
         if any(x in text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
             warn = f"⚠️ {user}, sharing links is not allowed."
             reply = send_message(chat_id, warn, reply_to=msg_id)
@@ -155,8 +77,9 @@ def webhook():
             return handle_search(chat_id, text[8:], "Series")
 
         return {"ok": True}
+
     except Exception as e:
-        print(f"Error in webhook: {e}")
+        print(f"[ERROR webhook] {e}")
         return {"ok": False, "error": str(e)}, 500
 
 def send_help(chat_id, name):
@@ -169,6 +92,52 @@ def send_help(chat_id, name):
         "✨ I'll find HD download links for you!"
     )
 
+def get_random_blogger_post():
+    global blogger_cache
+    if not BLOG_URL:
+        return None
+    try:
+        if blogger_cache['last_fetched'] and datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry']:
+            return random.choice(blogger_cache['posts'])
+
+        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
+        data = requests.get(feed_url, headers=HEADERS, timeout=10).json()
+        posts = [l["href"] for e in data['feed'].get('entry', []) for l in e.get("link", []) if l["rel"] == "alternate"]
+        blogger_cache.update({"posts": posts, "last_fetched": datetime.now()})
+        return random.choice(posts) if posts else None
+    except Exception as e:
+        print(f"[ERROR blogger] {e}")
+        return None
+
+def get_base_url():
+    try:
+        url = f"{XATA_BASE_URL}/tables/domains/query"
+        headers = {
+            "Authorization": f"Bearer {XATA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
+        res = requests.post(url, headers=headers, json=payload, timeout=10).json()
+        if not res.get("records"):
+            return None
+        record = res["records"][0]
+        original_url = record["url"].rstrip("/")
+        final_url = requests.get(original_url, headers=HEADERS, timeout=10).url.rstrip("/")
+        if final_url != original_url:
+            patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record['id']}"
+            requests.patch(patch_url, headers=headers, json={"url": final_url}, timeout=10)
+        return final_url
+    except Exception as e:
+        print(f"[ERROR get_base_url] {e}")
+        return None
+
+def validate_url(url):
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
 def handle_search(chat_id, query, label):
     try:
         query = query.strip()
@@ -180,171 +149,101 @@ def handle_search(chat_id, query, label):
             return send_message(chat_id, "❌ Service unavailable. Please try again later.")
 
         search_url = f"{base_url}/site-1.html?to-search={quote(query)}"
-        try:
-            response = requests.get(search_url, headers=HEADERS, timeout=15)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-        except Exception as e:
-            print(f"Error fetching search results: {e}")
-            return send_message(chat_id, "❌ Error fetching results. Please try again.")
+        soup = BeautifulSoup(requests.get(search_url, headers=HEADERS, timeout=15).text, "html.parser")
 
         buttons = []
-        for item in soup.select("div.A2")[:MAX_RESULTS]:  # Limit to MAX_RESULTS
+        for item in soup.select("div.A2")[:MAX_RESULTS]:
             a = item.find("a", href=True)
             b = item.find("b")
-            
             if a and b:
-                title = b.text.strip()[:50]  # Limit title length
+                title = b.text.strip()[:50]
                 link = base_url + a["href"]
-                
-                # Create compact callback data
-                callback_data = {
-                    "t": title,
-                    "u": link[len(base_url):]  # Store relative URL to save space
-                }
-                
-                # Convert to JSON and base64
-                json_data = json.dumps(callback_data)
-                encoded_data = btoa(json_data)
-                
-                # Check if it fits Telegram's callback_data limit
-                if len(encoded_data) <= CALLBACK_DATA_MAX_SIZE:
-                    buttons.append([{"text": title, "callback_data": encoded_data}])
-                else:
-                    # Fallback for long URLs - use hash instead
-                    url_hash = hashlib.md5(link.encode()).hexdigest()
-                    callback_data = {"h": url_hash, "t": title}
-                    encoded_data = btoa(json.dumps(callback_data))
-                    buttons.append([{"text": title, "callback_data": encoded_data}])
+                callback_data = btoa(json.dumps({"t": title, "u": link[len(base_url):]}))
+                if len(callback_data) > CALLBACK_DATA_MAX_SIZE:
+                    callback_data = btoa(json.dumps({"t": title, "h": hashlib.md5(link.encode()).hexdigest()}))
+                buttons.append([{"text": title, "callback_data": callback_data}])
 
         msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
         return send_message(chat_id, msg, buttons=buttons)
+
     except Exception as e:
-        print(f"Error in handle_search: {e}")
+        print(f"[ERROR search] {e}")
         return send_message(chat_id, "❌ An error occurred. Please try again.")
 
 def handle_callback(query):
     try:
         chat_id = query["message"]["chat"]["id"]
-        message_id = query["message"]["message_id"]
-        encoded_data = query["data"]
-        
-        try:
-            # Decode the callback data
-            decoded_data = json.loads(atob(encoded_data))
-            
-            base_url = get_base_url()
-            if not base_url:
-                return send_message(chat_id, "❌ Service unavailable. Please try again later.")
-            
-            if "u" in decoded_data:  # Normal case with relative URL
-                relative_url = decoded_data["u"]
-                title = decoded_data["t"]
-                link = base_url + relative_url
-            elif "h" in decoded_data:  # Fallback case with hash
-                title = decoded_data["t"]
-                # In a real implementation, you'd need to store these hashes
-                return send_message(chat_id, "⚠️ This result is no longer available. Please search again.")
-            else:
-                return send_message(chat_id, "⚠️ Invalid data format.")
-            
-            # Validate the URL before processing
-            if not validate_url(link):
-                return send_message(chat_id, "⚠️ Invalid URL detected.")
-            
-            try:
-                response = requests.get(link, headers=HEADERS, timeout=15)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
-            except Exception as e:
-                print(f"Error fetching movie page: {e}")
-                return send_message(chat_id, "❌ Error loading content. Please try again.")
+        encoded = query["data"]
+        data = json.loads(atob(encoded))
 
-            # Extract movie details
-            poster = soup.select_one("div.movie-thumb img[src]")
-            ss = soup.select_one("div.ss img[src]")
-            size = get_info(soup, "Size") or "N/A"
-            lang = get_info(soup, "Language") or "N/A"
-            genre = get_info(soup, "Genre") or "N/A"
+        base_url = get_base_url()
+        if not base_url:
+            return send_message(chat_id, "❌ Service unavailable. Try again later.")
 
-            # Find download link
-            download = (soup.select_one("div.dlbtn a[href]") or 
-                        soup.select_one("a[href] > div.dll"))
-            download_link = download["href"] if download else link
-            
-            # Validate download link
-            if not validate_url(download_link):
-                download_link = link
+        if "u" in data:
+            title = data["t"]
+            link = base_url + data["u"]
+        else:
+            return send_message(chat_id, "⚠️ Link expired or unavailable.")
 
-            # Use blogger post if available
-            blog_post = get_random_blogger_post()
-            if blog_post:
-                encoded_url = btoa(download_link)
-                final_url = f"{blog_post}?url={encoded_url}"
-            else:
-                final_url = download_link
+        if not validate_url(link):
+            return send_message(chat_id, "⚠️ Invalid URL detected.")
 
-            # Prepare caption
-            caption = (
-                f"🎬 <b>{title}</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"<b>📁 Size:</b> <code>{size}</code>\n"
-                f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-                f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>\n"
-            )
+        soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=15).text, "html.parser")
+        poster = soup.select_one("div.movie-thumb img[src]")
+        ss = soup.select_one("div.ss img[src]")
+        size = get_info(soup, "Size")
+        lang = get_info(soup, "Language")
+        genre = get_info(soup, "Genre")
 
-            # Prepare media
-            media = []
-            if poster:
-                media.append({
-                    "type": "photo", 
-                    "media": poster["src"], 
-                    "caption": caption, 
-                    "parse_mode": "HTML"
-                })
-            if ss:
-                media.append({
-                    "type": "photo", 
-                    "media": ss["src"]
-                })
+        download = soup.select_one("div.dlbtn a[href]") or soup.select_one("a[href] > div.dll")
+        download_link = download["href"] if download else link
+        if not validate_url(download_link):
+            download_link = link
 
-            if media:
-                # Send media group
-                requests.post(
-                    f"{TELEGRAM_API}/sendMediaGroup",
-                    json={"chat_id": chat_id, "media": media},
-                    timeout=15
-                )
-            else:
-                # Fallback to text message
-                send_message(chat_id, caption)
+        blog_post = get_random_blogger_post()
+        if blog_post:
+            encoded_url = btoa(download_link)
+            final_url = f"{blog_post}?url={encoded_url}"
+        else:
+            final_url = download_link
 
-            # Answer the callback query to remove loading indicator
-            requests.post(
-                f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": query["id"]},
-                timeout=5
-            )
+        caption = (
+            f"🎬 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>📁 Size:</b> <code>{size}</code>\n"
+            f"<b>🈯 Language:</b> <code>{lang}</code>\n"
+            f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>"
+        )
 
-            return {"ok": True}
-        except Exception as e:
-            print(f"Error decoding callback data: {e}")
-            return send_message(chat_id, "⚠️ Invalid or expired link.")
+        media = []
+        if poster:
+            media.append({"type": "photo", "media": poster["src"], "caption": caption, "parse_mode": "HTML"})
+        if ss:
+            media.append({"type": "photo", "media": ss["src"]})
+
+        if media:
+            requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=15)
+        else:
+            send_message(chat_id, caption)
+
+        requests.post(f"{TELEGRAM_API}/answerCallbackQuery", json={"callback_query_id": query["id"]}, timeout=5)
+        return {"ok": True}
+
     except Exception as e:
-        print(f"Error in handle_callback: {e}")
-        return {"ok": False, "error": str(e)}, 500
+        print(f"[ERROR callback] {e}")
+        return send_message(chat_id, "⚠️ Error processing request.")
 
 def get_info(soup, label):
     try:
         for div in soup.select("div.fname"):
             if div.contents and label.lower() in div.contents[0].lower():
-                info_div = div.select_one("div")
-                return info_div.get_text(strip=True) if info_div else "N/A"
-        return "N/A"
+                return div.select_one("div").get_text(strip=True)
     except:
         return "N/A"
+    return "N/A"
 
 def send_message(chat_id, text, reply_to=None, buttons=None):
     try:
@@ -358,27 +257,17 @@ def send_message(chat_id, text, reply_to=None, buttons=None):
             payload["reply_to_message_id"] = reply_to
         if buttons:
             payload["reply_markup"] = {"inline_keyboard": buttons}
-        
-        response = requests.post(
-            f"{TELEGRAM_API}/sendMessage",
-            json=payload,
-            timeout=10
-        )
-        response.raise_for_status()
-        return response.json()
+        res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
+        return res.json() if res.ok else None
     except Exception as e:
-        print(f"Error sending message: {e}")
+        print(f"[ERROR send_message] {e}")
         return None
 
-def delete_message(chat_id, message_id):
+def delete_message(chat_id, msg_id):
     try:
-        requests.post(
-            f"{TELEGRAM_API}/deleteMessage",
-            json={"chat_id": chat_id, "message_id": message_id},
-            timeout=5
-        )
+        requests.post(f"{TELEGRAM_API}/deleteMessage", json={"chat_id": chat_id, "message_id": msg_id}, timeout=5)
     except Exception as e:
-        print(f"Error deleting message: {e}")
+        print(f"[ERROR delete_message] {e}")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
