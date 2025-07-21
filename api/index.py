@@ -119,7 +119,7 @@ def handle_callback(query):
     if not movie or now() - movie["timestamp"] > MOVIE_LINK_EXPIRY or movie["disabled"]:
         edit_button_to_disabled(chat_id, message_id, data)
         movie_links.pop(data, None)
-        return answer_callback(query["id"], "⚠️ This link has expired.")
+        return answer_callback(query["id"], "⚠️ This link has been already sent.")
 
     movie["disabled"] = True
     edit_button_to_disabled(chat_id, message_id, data)
