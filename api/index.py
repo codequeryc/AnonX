@@ -6,35 +6,27 @@ from urllib.parse import quote
 
 app = Flask(__name__)
 
-# Env vars
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# Environment Variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+XATA_API_KEY = os.getenv("XATA_API_KEY")
+XATA_BASE_URL = os.getenv("XATA_BASE_URL")
+BLOG_URL = os.getenv("BLOG_URL")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-XATA_API_KEY = os.environ.get("XATA_API_KEY")
-XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
-BLOG_URL = os.environ.get("BLOG_URL")
 
-# 🔁 Add expiry time
+# Configurations
 MOVIE_LINK_EXPIRY = timedelta(minutes=60)
 movie_links = {}
-
-# Blogger cache
 blogger_cache = {'last_fetched': None, 'posts': [], 'expiry': timedelta(hours=1)}
 
-def btoa(string): return base64.b64encode(string.encode()).decode()
+# Helpers
+def btoa(s): return base64.b64encode(s.encode()).decode()
+def now(): return datetime.now()
 
-def schedule_deletion(chat_id, user_msg_id, bot_msg_id, delay=3600):
-    def delete():
-        try:
-            delete_message(chat_id, user_msg_id)
-            delete_message(chat_id, bot_msg_id)
-        except Exception as e:
-            print(f"[❌] Delete failed: {e}")
-    threading.Timer(delay, delete).start()
-
+# Flask Routes
 @app.route("/", methods=["GET"])
 def home():
-    return f"🤖 Bot is Running!"
+    return "🤖 Bot is Running!"
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -44,9 +36,7 @@ def webhook():
         return handle_callback(data["callback_query"])
 
     msg = data.get("message", {})
-    chat_id = msg.get("chat", {}).get("id")
-    text = msg.get("text", "").strip()
-    msg_id = msg.get("message_id")
+    chat_id, text, msg_id = msg.get("chat", {}).get("id"), msg.get("text", "").strip(), msg.get("message_id")
     user = msg.get("from", {}).get("first_name", "Friend")
 
     if "new_chat_members" in msg:
@@ -58,8 +48,7 @@ def webhook():
         return {"ok": True}
 
     if any(x in text.lower() for x in ["http://", "https://", "t.me", "telegram.me"]):
-        warn = f"⚠️ {user}, sharing links is not allowed."
-        reply = send_message(chat_id, warn, reply_to=msg_id)
+        reply = send_message(chat_id, f"⚠️ {user}, sharing links is not allowed.", reply_to=msg_id)
         delete_message(chat_id, msg_id)
         if reply:
             threading.Timer(10, delete_message, args=(chat_id, reply["result"]["message_id"])).start()
@@ -68,125 +57,95 @@ def webhook():
     if text.lower() in ["/start", "/help", "help"]:
         return send_help(chat_id, user)
 
-    if text.lower().startswith("#movie "):
-        return handle_search(chat_id, text[7:], "Movie", msg_id)
-    if text.lower().startswith("#tv "):
-        return handle_search(chat_id, text[4:], "TV Show", msg_id)
-    if text.lower().startswith("#series "):
-        return handle_search(chat_id, text[8:], "Series", msg_id)
+    for prefix, label in [("#movie ", "Movie"), ("#tv ", "TV Show"), ("#series ", "Series")]:
+        if text.lower().startswith(prefix):
+            return handle_search(chat_id, text[len(prefix):], label, msg_id)
 
     return {"ok": True}
 
+# Core Handlers
 def send_help(chat_id, name):
-    return send_message(chat_id,
-        f"👋 <b>Welcome, {name}!</b>\n\n"
-        "🎬 <b>Search Movies & Series:</b>\n"
-        "🎥 <code>#movie Animal</code>\n"
-        "📺 <code>#tv Breaking Bad</code>\n"
-        "📽️ <code>#series Loki</code>\n\n"
-        "✨ I'll find HD download links for you!"
-    )
+    return send_message(chat_id, f"""👋 <b>Welcome, {name}!</b>
+
+🎬 <b>Search Movies & Series:</b>
+🎥 <code>#movie Animal</code>
+📺 <code>#tv Breaking Bad</code>
+🎝️ <code>#series Loki</code>
+
+✨ I'll find HD download links for you!
+    """)
 
 def handle_search(chat_id, query, label, user_msg_id):
-    query = query.strip()
-    if not query:
-        return send_message(chat_id, f"❌ Provide a {label.lower()} name.")
+    query, base_url = query.strip(), get_base_url()
+    if not query or not base_url:
+        return send_message(chat_id, f"❌ Provide a {label.lower()} name or base URL not found.")
 
-    base_url = get_base_url()
-    if not base_url:
-        return send_message(chat_id, "❌ Base URL not found.")
-
-    url = f"{base_url}/site-1.html?to-search={query.replace(' ', '+')}"
     try:
+        url = f"{base_url}/site-1.html?to-search={quote(query)}"
         soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
-    except Exception as e:
-        print(f"[❌] Search failed: {e}")
-        return send_message(chat_id, "❌ Failed to search. Please try again later.")
+    except:
+        return send_message(chat_id, "❌ Failed to search. Try again later.")
 
     buttons = []
-    for item in soup.select("div.A2"):
+    for item in soup.select("div.A2")[:10]:
         a, b = item.find("a", href=True), item.find("b")
         if a and b:
-            title = b.text.strip()
-            link = base_url + a["href"]
+            title, link = b.text.strip(), base_url + a["href"]
             cid = f"movie_{abs(hash(title + link))}"
-            movie_links[cid] = {
-                "title": title,
-                "link": link,
-                "timestamp": datetime.now(),
-                "disabled": False  # Track button state
-            }
+            movie_links[cid] = {"title": title, "link": link, "timestamp": now(), "disabled": False}
             buttons.append([{"text": title, "callback_data": cid}])
-        if len(buttons) >= 10:
-            break
 
     msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
-    result = send_message(chat_id, msg + "\n\n🕒 <i>This results will auto-delete in 1 hour</i>", buttons=buttons)
+    result = send_message(chat_id, msg + "\n\n🕒 <i>Results auto-delete in 1 hour</i>", buttons=buttons)
 
     if result and "result" in result:
-        bot_msg_id = result["result"]["message_id"]
-        schedule_deletion(chat_id, user_msg_id, bot_msg_id)
+        schedule_deletion(chat_id, user_msg_id, result["result"]["message_id"])
 
     return result
 
-def handle_callback(query):
-    chat_id = query["message"]["chat"]["id"]
-    message_id = query["message"]["message_id"]
-    data = query["data"]
-    user_id = query["from"]["id"]
-    
-    # Check if the callback is for a disabled button
-    if data.startswith("disabled_"):
-        return answer_callback(query["id"], "⚠️ This link has expired or been used already.")
-    
-    movie = movie_links.get(data)
+# Utilities
+def schedule_deletion(chat_id, user_msg_id, bot_msg_id, delay=3600):
+    def delete():
+        delete_message(chat_id, user_msg_id)
+        delete_message(chat_id, bot_msg_id)
+    threading.Timer(delay, delete).start()
 
-    # Check for expiry or disabled state
-    if not movie or datetime.now() - movie.get("timestamp", datetime.min) > MOVIE_LINK_EXPIRY or movie.get("disabled"):
-        # Update button to show it's disabled
+def handle_callback(query):
+    chat_id, message_id, data = query["message"]["chat"]["id"], query["message"]["message_id"], query["data"]
+    if data.startswith("disabled_"):
+        return answer_callback(query["id"], "⚠️ This link has been already sent.")
+
+    movie = movie_links.get(data)
+    if not movie or now() - movie["timestamp"] > MOVIE_LINK_EXPIRY or movie["disabled"]:
         edit_button_to_disabled(chat_id, message_id, data)
         movie_links.pop(data, None)
-        return answer_callback(query["id"], "⚠️ This link has been used already Please Check down below.")
+        return answer_callback(query["id"], "⚠️ This link has expired.")
 
+    movie["disabled"] = True
+    edit_button_to_disabled(chat_id, message_id, data)
     try:
-        # Mark button as disabled immediately
-        movie["disabled"] = True
-        edit_button_to_disabled(chat_id, message_id, data)
-        
-        link, title = movie["link"], movie["title"]
-        soup = BeautifulSoup(requests.get(link, headers=HEADERS, timeout=10).text, "html.parser")
-
+        soup = BeautifulSoup(requests.get(movie["link"], headers=HEADERS, timeout=10).text, "html.parser")
         poster = soup.select_one("div.movie-thumb img")
         ss = soup.select_one("div.ss img")
         size = get_info(soup, "Size")
         lang = get_info(soup, "Language")
         genre = get_info(soup, "Genre")
-
         download = soup.select_one("div.dlbtn a") or soup.select_one("a > div.dll")
-        download_link = download["href"] if download and download.get("href") else link
+        download_link = download.get("href") if download else movie["link"]
 
-        blog_post = get_random_blogger_post()
-        if blog_post:
-            encoded = btoa(download_link)
-            final_url = f"{blog_post}?url={encoded}"
-        else:
-            final_url = download_link
-
-        caption = (
-            f"🎬 <b>{title}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>📁 Size:</b> <code>{size}</code>\n"
-            f"<b>🈯 Language:</b> <code>{lang}</code>\n"
-            f"<b>🎭 Genre:</b> <code>{genre}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 <a href='{final_url}'><b>📥 Download Now</b></a>\n"
-        )
+        final_url = f"{get_random_blogger_post()}?url={btoa(download_link)}" if get_random_blogger_post() else download_link
+        caption = f"""🎬 <b>{movie['title']}</b>
+━━━━━━━━━━━━━━━━━━━
+<b>📁 Size:</b> <code>{size}</code>
+<b>🇨 Language:</b> <code>{lang}</code>
+<b>🎭 Genre:</b> <code>{genre}</code>
+━━━━━━━━━━━━━━━━━━━
+🔗 <a href='{final_url}'><b>👅 Download Now</b></a>
+"""
 
         media = []
-        if poster:
-            media.append({"type": "photo", "media": poster["src"], "caption": caption, "parse_mode": "HTML"})
-        if ss:
-            media.append({"type": "photo", "media": ss["src"]})
+        if poster: media.append({"type": "photo", "media": poster["src"], "caption": caption, "parse_mode": "HTML"})
+        if ss: media.append({"type": "photo", "media": ss["src"]})
 
         if media:
             requests.post(f"{TELEGRAM_API}/sendMediaGroup", json={"chat_id": chat_id, "media": media}, timeout=10)
@@ -194,49 +153,8 @@ def handle_callback(query):
             send_message(chat_id, caption)
 
         return answer_callback(query["id"])
-
-    except Exception as e:
-        print(f"[❌] Callback failed: {e}")
-        return answer_callback(query["id"], "❌ Failed to process your request. Please try again.")
-
-def edit_button_to_disabled(chat_id, message_id, callback_data):
-    """Edit the clicked button to show it's disabled"""
-    try:
-        # Get current message markup
-        msg_info = requests.post(f"{TELEGRAM_API}/getChatMessage", json={
-            "chat_id": chat_id,
-            "message_id": message_id
-        }, timeout=5).json()
-        
-        if not msg_info.get("ok"):
-            return
-
-        keyboard = msg_info["result"].get("reply_markup", {}).get("inline_keyboard", [])
-        
-        # Update the clicked button
-        for row in keyboard:
-            for btn in row:
-                if btn.get("callback_data") == callback_data:
-                    btn["text"] = "❌ " + btn["text"]
-                    btn["callback_data"] = "disabled_" + callback_data
-                    break
-        
-        # Edit the message with updated buttons
-        requests.post(f"{TELEGRAM_API}/editMessageReplyMarkup", json={
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "reply_markup": {"inline_keyboard": keyboard}
-        }, timeout=5)
-    except Exception as e:
-        print(f"[❌] Failed to disable button: {e}")
-
-def answer_callback(callback_id, text=None):
-    payload = {"callback_query_id": callback_id}
-    if text:
-        payload["text"] = text
-        payload["show_alert"] = True
-    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", json=payload, timeout=5)
-    return {"ok": True}
+    except:
+        return answer_callback(query["id"], "❌ Failed to process request.")
 
 def get_info(soup, label):
     for div in soup.select("div.fname"):
@@ -244,81 +162,56 @@ def get_info(soup, label):
             return div.select_one("div").get_text(strip=True)
     return "N/A"
 
-def get_random_blogger_post():
-    global blogger_cache
-    if not BLOG_URL:
-        return None
-    try:
-        if (
-            blogger_cache['last_fetched'] and
-            datetime.now() - blogger_cache['last_fetched'] < blogger_cache['expiry'] and
-            blogger_cache['posts']
-        ):
-            return random.choice(blogger_cache['posts'])
-
-        feed_url = f"{BLOG_URL}/feeds/posts/default?alt=json"
-        response = requests.get(feed_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        posts = []
-        for entry in data['feed'].get('entry', []):
-            for link in entry.get('link', []):
-                if link.get('rel') == 'alternate' and link.get('type') == 'text/html':
-                    posts.append(link['href'])
-                    break
-
-        blogger_cache['posts'] = posts
-        blogger_cache['last_fetched'] = datetime.now()
-        return random.choice(posts) if posts else None
-    except Exception as e:
-        print(f"Error fetching Blogger JSON feed: {e}")
-        return None
-
 def get_base_url():
     try:
         url = f"{XATA_BASE_URL}/tables/domains/query"
-        headers = {
-            "Authorization": f"Bearer {XATA_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {XATA_API_KEY}", "Content-Type": "application/json"}
         payload = {"filter": {"uid": "abc12"}, "columns": ["url"]}
         res = requests.post(url, headers=headers, json=payload, timeout=10)
-        res.raise_for_status()
-        records = res.json().get("records", [])
-        if not records:
-            return None
+        url = res.json()["records"][0]["url"].rstrip("/")
+        return requests.get(url, headers=HEADERS, timeout=10).url.rstrip("/")
+    except:
+        return None
 
-        original_url = records[0]["url"].rstrip("/")
-        record_id = records[0]["id"]
-        try:
-            final_url = requests.get(original_url, headers=HEADERS, timeout=10).url.rstrip("/")
-        except:
-            final_url = original_url
-        if final_url != original_url:
-            patch_url = f"{XATA_BASE_URL}/tables/domains/data/{record_id}"
-            requests.patch(patch_url, headers=headers, json={"url": final_url}, timeout=10)
-
-        return final_url
+def get_random_blogger_post():
+    if not BLOG_URL:
+        return None
+    try:
+        if blogger_cache['last_fetched'] and now() - blogger_cache['last_fetched'] < blogger_cache['expiry']:
+            return random.choice(blogger_cache['posts'])
+        data = requests.get(f"{BLOG_URL}/feeds/posts/default?alt=json", headers=HEADERS, timeout=10).json()
+        blogger_cache['posts'] = [l['href'] for e in data['feed'].get('entry', []) for l in e.get('link', []) if l['rel'] == 'alternate']
+        blogger_cache['last_fetched'] = now()
+        return random.choice(blogger_cache['posts'])
     except:
         return None
 
 def send_message(chat_id, text, reply_to=None, buttons=None):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
-    if reply_to:
-        payload["reply_to_message_id"] = reply_to
-    if buttons:
-        payload["reply_markup"] = {"inline_keyboard": buttons}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}
+    if reply_to: payload["reply_to_message_id"] = reply_to
+    if buttons: payload["reply_markup"] = {"inline_keyboard": buttons}
     r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     return r.json() if r.ok else None
 
 def delete_message(chat_id, message_id):
     requests.post(f"{TELEGRAM_API}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id}, timeout=5)
 
+def edit_button_to_disabled(chat_id, message_id, callback_data):
+    try:
+        markup = {"inline_keyboard": [[{**btn, "text": "❌ " + btn["text"], "callback_data": "disabled_" + callback_data}
+                                         if btn.get("callback_data") == callback_data else btn for btn in row]
+                                        for row in requests.post(f"{TELEGRAM_API}/getChatMessage",
+                                        json={"chat_id": chat_id, "message_id": message_id}, timeout=5).json()
+                                        ["result"].get("reply_markup", {}).get("inline_keyboard", [])]}
+        requests.post(f"{TELEGRAM_API}/editMessageReplyMarkup",
+                      json={"chat_id": chat_id, "message_id": message_id, "reply_markup": markup}, timeout=5)
+    except: pass
+
+def answer_callback(callback_id, text=None):
+    payload = {"callback_query_id": callback_id}
+    if text: payload.update({"text": text, "show_alert": True})
+    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", json=payload, timeout=5)
+    return {"ok": True}
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
