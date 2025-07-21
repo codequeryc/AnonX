@@ -78,13 +78,13 @@ def send_help(chat_id, name):
 def handle_search(chat_id, query, label, user_msg_id):
     query, base_url = query.strip(), get_base_url()
     if not query or not base_url:
-        return send_message(chat_id, f"❌ Provide a {label.lower()} name or base URL not found.")
+        return send_message(chat_id, f"❌ Provide a {label.lower()} name or base URL not found.", reply_to=user_msg_id)
 
     try:
         url = f"{base_url}/site-1.html?to-search={quote(query)}"
         soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=10).text, "html.parser")
     except:
-        return send_message(chat_id, "❌ Failed to search. Try again later.")
+        return send_message(chat_id, "❌ Failed to search. Try again later.", reply_to=user_msg_id)
 
     buttons = []
     for item in soup.select("div.A2")[:10]:
@@ -96,7 +96,7 @@ def handle_search(chat_id, query, label, user_msg_id):
             buttons.append([{"text": title, "callback_data": cid}])
 
     msg = f"🔎 <b>{label}</b> results for <code>{query}</code>:" if buttons else f"🚫 <b>No {label.lower()} found</b> for <code>{query}</code>.\n📝 Please check your spelling or try a different keyword."
-    result = send_message(chat_id, msg + "\n\n⌛ <i><b>Note:</b> This message will auto-delete in 1 hour.</i>", buttons=buttons)
+    result = send_message(chat_id, msg + "\n\n⌛ <i><b>Note:</b> This message will auto-delete in 1 hour.</i>", buttons=buttons, reply_to=user_msg_id)
 
     if result and "result" in result:
         schedule_deletion(chat_id, user_msg_id, result["result"]["message_id"])
