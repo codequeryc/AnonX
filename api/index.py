@@ -15,7 +15,7 @@ XATA_BASE_URL = os.environ.get("XATA_BASE_URL")
 BLOG_URL = os.environ.get("BLOG_URL")
 
 # 🔁 Add expiry time
-MOVIE_LINK_EXPIRY = timedelta(minutes=30)
+MOVIE_LINK_EXPIRY = timedelta(minutes=60)
 movie_links = {}
 
 # Blogger cache
@@ -116,7 +116,7 @@ def handle_search(chat_id, query, label, user_msg_id):
             break
 
     msg = f"🔍 {label} results for <b>{query}</b>:" if buttons else f"❌ No {label.lower()} found."
-    result = send_message(chat_id, msg + "\n\n🕒 <i>This message will auto-delete in 1 hour</i>", buttons=buttons)
+    result = send_message(chat_id, msg + "\n🕒 <i>This results will auto-delete in 1 hour</i>", buttons=buttons)
 
     # 🔁 Schedule deletion after 1 hour
     if result and "result" in result:
