@@ -5,6 +5,13 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 
 app = Flask(__name__)
+from flask import send_from_directory
+import os
+
+@app.route("/txt/<path:filename>")
+def serve_txt(filename):
+    return send_from_directory(os.path.join(app.root_path, "public", "txt"), filename, mimetype="application/vnd.apple.mpegurl")
+
 
 # Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
